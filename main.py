@@ -29,7 +29,7 @@ from reportlab.lib.utils import simpleSplit
 # =========================
 # PRO CONFIG 5.2 (PDF + DIGITAL SEAL)
 # =========================
-TOKEN = "8785738588:AAET2CwSmyinOtpnQLzXxo9nEAqXZ18mmFM"
+TOKEN = "8785738588:AAGAG07a8miJwbYWBT6IYX6ZgeE7ivBg88M"
 ADMIN_USER_ID = 8061332993
 
 BOT_NAME = "LexGuard AML"
