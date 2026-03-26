@@ -488,6 +488,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=main_menu()
     )
 
+    await update.message.reply_text(
+        "🛡 LexGuard AML\nSelect an action:",
+        reply_markup=main_menu()
+    )
+
 
 async def admin_res(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
