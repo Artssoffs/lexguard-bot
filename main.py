@@ -38,7 +38,17 @@ BOT_TAGLINE = "Premium Wallet Screening & Compliance"
 FULL_REPORT_PRICE_USD = Decimal("1400")
 PAYMENT_NETWORK = "USDT TRC20"
 PAYMENT_WALLET = "TRND8fBYLQWuy8xMpmRcq77eTLWrdbBH61"
-START_BANNER_PATH = "lexguard_banner.png"
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    clear_flow(context)
+
+    BANNER_URL = "https://raw.githubusercontent.com/Artssoffs/lexguard-bot/main/lexguard_banner.png"
+
+    await update.message.reply_photo(
+        photo=BANNER_URL,
+        caption="🛡 <b>LexGuard AML</b>\n<i>Premium Wallet Screening</i>",
+        parse_mode="HTML",
+        reply_markup=main_menu()
+    )
 
 REPORT_SIGNING_SECRET = os.getenv(
     "lexguard_aml_pdf_seal_9f3c7a1e_2026", "CHANGE_THIS_LEXGUARD_SECRET"
