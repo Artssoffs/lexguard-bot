@@ -470,23 +470,15 @@ def admin_menu(context: ContextTypes.DEFAULT_TYPE) -> InlineKeyboardMarkup:
     )
 
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    clear_flow(context)
-    if os.path.exists(START_BANNER_PATH):
-        try:
-            with open(START_BANNER_PATH, "rb") as f:
-                await update.message.reply_photo(photo=f)
-        except Exception:
-            pass
-
-    text = (
-        f"🛡 <b>{BOT_NAME}</b>\n"
-        f"<i>{BOT_TAGLINE}</i>\n\n"
-        "⚡️ Welcome to the professional analytics and crypto-compliance service. "
-        "Protect your assets with our advanced algorithms.\n\n"
-        "Select an action:"
-    )
-    await update.message.reply_text(text, parse_mode="HTML", reply_markup=main_menu())
+if os.path.exists(START_BANNER_PATH):
+    with open(START_BANNER_PATH, "rb") as f:
+        await update.message.reply_photo(
+            photo=f,
+            caption="🛡 LexGuard AML\nPremium Wallet Screening",
+            parse_mode="HTML",
+            reply_markup=main_menu()
+        )
+    return
 
 
 async def admin_res(update: Update, context: ContextTypes.DEFAULT_TYPE):
