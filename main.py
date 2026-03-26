@@ -483,15 +483,14 @@ def admin_menu(context: ContextTypes.DEFAULT_TYPE) -> InlineKeyboardMarkup:
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     clear_flow(context)
 
-    if os.path.exists(START_BANNER_PATH):
-        with open(START_BANNER_PATH, "rb") as f:
-            await update.message.reply_photo(
-                photo=f,
-                caption="🛡 LexGuard AML\nPremium Wallet Screening",
-                parse_mode="HTML",
-                reply_markup=main_menu()
-            )
-        return
+    BANNER_URL = "https://raw.githubusercontent.com/Artssoffs/lexguard-bot/main/lexguard_banner.png"
+
+    await update.message.reply_photo(
+        photo=BANNER_URL,
+        caption="🛡 <b>LexGuard AML</b>\n<i>Premium Wallet Screening</i>",
+        parse_mode="HTML",
+        reply_markup=main_menu()
+    )
 
     await update.message.reply_text(
         "🛡 LexGuard AML\nSelect an action:",
