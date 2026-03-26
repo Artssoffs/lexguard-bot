@@ -483,7 +483,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         return
 
-
     await update.message.reply_text(
         "🛡 LexGuard AML\nSelect an action:",
         reply_markup=main_menu()
