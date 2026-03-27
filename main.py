@@ -339,7 +339,6 @@ def make_report_file(target: str, payment_ref: str, risk: str, score: int) -> By
     y_left = _draw_label_value(
         c,
         "Methodology",
-        "Custom Manual Audit by LexGuard AML Company",
         "Custom Manual Report by LexGuard AML Company",
         left_x,
         y_left,
@@ -418,8 +417,7 @@ def make_report_file(target: str, payment_ref: str, risk: str, score: int) -> By
     c.save()
 
     buffer.seek(0)
-    buffer.name = f"{report_id}.pdf"
-    return buffer
+    return buffer, f"{report_id}.pdf"
 
 
 def main_menu() -> InlineKeyboardMarkup:
@@ -427,7 +425,6 @@ def main_menu() -> InlineKeyboardMarkup:
         [
             [InlineKeyboardButton("🔍 Quick Scan (Free)", callback_data="scan")],
             [InlineKeyboardButton("🛡 Custom Manual Audit", callback_data="report")],
-            [InlineKeyboardButton("🛡 Custom Manual AML Report", callback_data="report")],
             [InlineKeyboardButton("💳 Services & Pricing", callback_data="pricing")],
             [InlineKeyboardButton("🌐 About LexGuard", callback_data="about")],
         ]
@@ -654,9 +651,10 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         final_score = random.randint(34, 38)
         final_risk = "MEDIUM"
 
+        report_buffer, report_filename = make_report_file(target, text, final_risk, final_score)
         await context.bot.send_document(
             chat_id=update.effective_chat.id,
-            document=InputFile(make_report_file(target, text, final_risk, final_score)),
+            document=InputFile(report_buffer, filename=report_filename),
             caption=(
                 f"📄 <b>Custom Manual Audit Completed</b>\n\n"
                 f"<b>Target:</b> <code>{target}</code>\n"
@@ -704,7 +702,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     loader = await update.message.reply_text(
-    loader =	
+    	
         "🔎 <b>Scanning nodes and analyzing connections...</b>",
         parse_mode="HTML",
     )
