@@ -340,6 +340,7 @@ def make_report_file(target: str, payment_ref: str, risk: str, score: int) -> By
         c,
         "Methodology",
         "Custom Manual Audit by LexGuard AML Company",
+        "Custom Manual Report by LexGuard AML Company",
         left_x,
         y_left,
         215,
@@ -426,6 +427,7 @@ def main_menu() -> InlineKeyboardMarkup:
         [
             [InlineKeyboardButton("🔍 Quick Scan (Free)", callback_data="scan")],
             [InlineKeyboardButton("🛡 Custom Manual Audit", callback_data="report")],
+            [InlineKeyboardButton("🛡 Custom Manual AML Report", callback_data="report")],
             [InlineKeyboardButton("💳 Services & Pricing", callback_data="pricing")],
             [InlineKeyboardButton("🌐 About LexGuard", callback_data="about")],
         ]
@@ -546,6 +548,7 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["flow"] = "report_target"
         await q.edit_message_text(
             "🛡 <b>Custom Manual Audit by LexGuard AML</b>\n\n"
+            "🛡 <b>Custom Manual Report by LexGuard AML</b>\n\n"
             "In-depth analysis with an official verification certificate.\n"
             "Enter the wallet address:",
             parse_mode="HTML",
@@ -701,6 +704,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     loader = await update.message.reply_text(
+    loader =	
         "🔎 <b>Scanning nodes and analyzing connections...</b>",
         parse_mode="HTML",
     )
