@@ -1,3 +1,19 @@
+
+"""
+LexGuard AML Telegram Bot
+------------------------
+Многофункциональный Telegram-бот для проверки криптовалютных кошельков и транзакций на риски (AML), генерации PDF-отчётов с цифровой подписью, приёма платежей USDT TRC20, поддержки ручного и автоматического режимов, панели администратора и расширенной аналитики.
+
+Возможности:
+- Быстрая проверка кошельков и транзакций (AI/ручной режим)
+- Генерация PDF-отчётов с цифровой подписью
+- Приём оплаты USDT TRC20
+- Панель администратора
+- История запросов, статистика, справка
+- Многоязычность (RU/EN, TODO)
+- Расширяемая архитектура (TODO: вынести обработчики в модули)
+"""
+
 import os
 import re
 import hmac
@@ -9,7 +25,7 @@ import textwrap
 from io import BytesIO
 from decimal import Decimal
 from datetime import datetime, timezone
-from typing import Tuple
+from typing import Tuple, Dict, Any
 
 import httpx
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFile
@@ -43,9 +59,7 @@ REPORT_SIGNING_SECRET = os.getenv(
 )
 
 USDT_TRC20_CONTRACT = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t"
-TRONGRID_API_BASE = os.getenv("TRONGRID_API_BASE", "https://api.trongrid.io").rstrip(
-    "/"
-)
+TRONGRID_API_BASE = os.getenv("TRONGRID_API_BASE", "https://api.trongrid.io").rstrip("/")
 TRONGRID_API_KEY = os.getenv("TRONGRID_API_KEY", "")
 
 TRON_ADDRESS_RE = re.compile(r"^T[1-9A-HJ-NP-Za-km-z]{33}$")
@@ -56,6 +70,8 @@ logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s", level=logging.INFO
 )
 logger = logging.getLogger("lexguard_pro")
+
+# TODO: Вынести обработчики команд и вспомогательные функции в отдельные модули для масштабируемости.
 
 
 def is_admin(user_id: int) -> bool:
@@ -106,32 +122,39 @@ def risk_badge(risk: str) -> str:
 
 def auto_risk(target: str) -> Tuple[str, int]:
     n = int(hashlib.sha256(target.encode("utf-8")).hexdigest()[:8], 16) % 100
-    if n < 55:
-        return "LOW", 12 + (n % 18)
-    if n < 82:
-        return "MEDIUM", 42 + (n % 18)
-    return "HIGH", 78 + (n % 18)
 
-
-async def verify_trc20_payment(tx_hash: str) -> Tuple[bool, str]:
-    raw_tx_hash = tx_hash.strip()
-    normalized_tx_hash = raw_tx_hash.replace("0x", "")
-
-    if not TX_HASH_RE.match(raw_tx_hash):
-        return False, "❌ Invalid transaction hash format."
-
-    headers = {"Accept": "application/json"}
-    if TRONGRID_API_KEY:
-        headers["TRON-PRO-API-KEY"] = TRONGRID_API_KEY
-
-    try:
-        async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.get(
-                f"{TRONGRID_API_BASE}/v1/transactions/{normalized_tx_hash}/events",
-                headers=headers,
-            )
-            resp.raise_for_status()
             events = resp.json().get("data", [])
+        """Точка входа: инициализация и запуск Telegram-бота."""
+        app = ApplicationBuilder().token(TOKEN).build()
+
+        app.add_handler(CommandHandler("start", start))
+        app.add_handler(CommandHandler("help", help_command))
+        app.add_handler(CommandHandler("history", history_command))
+        app.add_handler(CommandHandler("stats", stats_command))
+        app.add_handler(
+            CommandHandler(
+                "admin",
+                lambda u, c: u.message.reply_text(
+                    "⚙️ Admin Panel",
+                    reply_markup=admin_menu(c),
+                )
+                if is_admin(u.effective_user.id)
+                else None,
+            )
+        )
+        app.add_handler(CommandHandler("res", admin_res))
+        app.add_handler(CallbackQueryHandler(callbacks))
+        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+
+        logger.info("LexGuard Pro Intercept Module Active.")
+        try:
+            app.run_polling()
+        except Exception as e:
+            logger.critical(f"Bot crashed: {e}")
+
+
+    if __name__ == "__main__":
+        main()
     except Exception:
         return False, "❌ Node synchronization error. Try again."
 
