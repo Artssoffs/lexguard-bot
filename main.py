@@ -332,32 +332,53 @@ async def reply_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     except Exception:
         await update.message.reply_text("❌ Формат: /reply <user_id> <текст ответа>")
 
-async def admin_res(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def admin_auditres(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
         return
+
     try:
         parts = update.message.text.split()
-        if len(parts) != 4: raise ValueError
+        if len(parts) != 4:
+            raise ValueError
+
         target_uid = int(parts[1])
         risk = parts[2].upper()
         score = int(parts[3])
 
-        pending = context.bot_data.get("pending_scans", {}).pop(target_uid, None)
+        if risk not in {"LOW", "MEDIUM", "HIGH"}:
+            raise ValueError
+
+        pending = context.bot_data.get("pending_audits", {}).pop(target_uid, None)
         if not pending:
-            await update.message.reply_text("❌ Request not found or already answered.")
+            await update.message.reply_text("❌ Audit request not found or already answered.")
             return
 
-        report = (
-            f"<b>📊 LEXGUARD MANUAL SCAN RESULT</b>\n\n"
-            f"<b>Target:</b> <code>{pending['target']}</code>\n"
-            f"<b>Risk Level:</b> {risk_badge(risk)}\n"
-            f"<b>Threat Score:</b> {score}/100\n\n"
-            f"<i>Engine: LexGuard Deep Manual Scan | {now_utc()}</i>"
+        pdf_buffer, pdf_name = make_report_file(
+            pending["target"],
+            pending["payment_ref"],
+            risk,
+            score,
+            pending["lang"],
         )
-        await context.bot.edit_message_text(chat_id=pending["chat_id"], message_id=pending["msg_id"], text=report, parse_mode="HTML", reply_markup=back_menu())
-        await update.message.reply_text("✅ Result sent to client!")
+
+        await context.bot.send_document(
+            chat_id=pending["chat_id"],
+            document=pdf_buffer,
+            filename=pdf_name,
+            caption=(
+                f"✅ <b>Your Custom Manual Audit Report</b>\n\n"
+                f"<b>Target:</b> <code>{pending['target']}</code>\n"
+                f"<b>Risk Level:</b> {risk_badge(risk)}\n"
+                f"<b>Threat Score:</b> {score}/100\n\n"
+                f"<i>Report ID: {pdf_name}</i>"
+            ),
+            parse_mode="HTML",
+        )
+
+        await update.message.reply_text("✅ Paid PDF audit sent to client!")
+
     except Exception:
-        await update.message.reply_text("❌ Format: /res <ID> <LOW/MEDIUM/HIGH> <SCORE>")
+        await update.message.reply_text("❌ Format: /auditres <ID> <LOW/MEDIUM/HIGH> <SCORE>")
 
 
 # =========================
