@@ -57,6 +57,7 @@ def get_state(context: ContextTypes.DEFAULT_TYPE) -> dict:
     state = context.bot_data
     state.setdefault("risk_mode", "auto")
     state.setdefault("pending_scans", {})
+    state.setdefault("pending_audits", {})
     return state
 
 def clear_flow(context: ContextTypes.DEFAULT_TYPE) -> None:
