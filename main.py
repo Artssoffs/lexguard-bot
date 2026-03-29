@@ -457,10 +457,58 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"💸 <b>Payment Instructions</b>\n\nSend <b>${FULL_REPORT_PRICE_USD} USDT</b> (TRC20) to:\n\n<code>{PAYMENT_WALLET}</code>\n\nAfter payment, send the transaction hash here.", parse_mode="HTML", reply_markup=back_menu())
 
     elif flow == "report_tx":
-        target = context.user_data.get("report_target")
-        if not target:
-            await update.message.reply_text("❌ Error. Please start again with /start")
-            return
+    target = context.user_data.get("report_target")
+    if not target:
+        await update.message.reply_text("❌ Error. Please start again with /start")
+        return
+
+    await update.message.reply_text("⏳ Verifying payment...")
+    ok, msg = True, "✅ Payment confirmed."
+
+    lang = context.user_data.get("report_lang", "ENG")
+    state = get_state(context)
+
+    if state["risk_mode"] == "manual":
+        msg_wait = await update.message.reply_text(
+            "⏳ Payment confirmed. Waiting for manual audit result...",
+            parse_mode="HTML",
+        )
+
+        state["pending_audits"][uid] = {
+            "target": target,
+            "payment_ref": text,
+            "chat_id": update.effective_chat.id,
+            "msg_id": msg_wait.message_id,
+            "lang": lang,
+        }
+
+        await context.bot.send_message(
+            chat_id=ADMIN_USER_ID,
+            text=(
+                f"🛡 <b>PAID MANUAL AUDIT REQUEST</b>\n\n"
+                f"👤 User: <code>{uid}</code>\n"
+                f"🎯 Target: <code>{target}</code>\n"
+                f"💳 Payment TX: <code>{text}</code>\n"
+                f"🌐 Language: <b>{lang}</b>\n\n"
+                f"Respond with:\n"
+                f"<code>/auditres {uid} LOW 15</code>\n"
+                f"<code>/auditres {uid} MEDIUM 55</code>\n"
+                f"<code>/auditres {uid} HIGH 89</code>"
+            ),
+            parse_mode="HTML",
+        )
+        return
+
+    risk, score = random.choice(["LOW", "MEDIUM", "HIGH"]), random.randint(20, 95)
+
+    pdf_buffer, pdf_name = make_report_file(target, text, risk, score, lang)
+    await update.message.reply_document(
+        document=pdf_buffer,
+        filename=pdf_name,
+        caption=f"✅ <b>Your Custom Manual Audit Report</b>\n\n<i>Report ID: {pdf_name}</i>",
+        parse_mode="HTML",
+    )
+    clear_flow(context)
 
         await update.message.reply_text("⏳ Verifying payment and generating report...")
         risk, score = random.choice(["LOW", "MEDIUM", "HIGH"]), random.randint(20, 95)
