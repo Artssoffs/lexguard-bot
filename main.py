@@ -77,6 +77,12 @@ def risk_badge(risk: str) -> str:
     badges = {"LOW": "🟢 LOW", "MEDIUM": "🟡 MEDIUM", "HIGH": "🔴 HIGH", "CRITICAL": "⛔ CRITICAL"}
     return badges.get(risk.upper(), "⚪ UNKNOWN")
 
+def normalize_risk(risk_str: str) -> str:
+    r = risk_str.upper()
+    if r in ["LOW", "MEDIUM", "HIGH", "CRITICAL"]:
+        return r
+    return "LOW"
+
 def _sign_report(payload: str) -> str:
     signature = hmac.new(REPORT_SIGNING_SECRET.encode(), payload.encode(), hashlib.sha256).hexdigest()
     return signature.upper()
@@ -265,6 +271,24 @@ def make_report_file(target: str, payment_ref: str, risk: str, score: int, lang:
 
 
 # =========================
+# TEXT HELPERS
+# =========================
+def welcome_text() -> str:
+    return f"🛡 <b>{BOT_NAME}</b>\n<i>{BOT_TAGLINE}</i>\n\nSelect an action:"
+
+def pricing_text() -> str:
+    return f"💳 <b>Services & Pricing</b>\n\n• <b>Quick AI Scan:</b> Free (Basic scoring)\n• <b>Custom Manual Audit:</b> ${FULL_REPORT_PRICE_USD} (Detailed audit by our expert team)\n\n<i>We guarantee complete confidentiality.</i>"
+
+def about_text() -> str:
+    return "🌐 <b>About LexGuard</b>\n\nLexGuard AML is a cutting-edge solution to protect your business from illicit cryptocurrency.\n\nWe conduct comprehensive blockchain analysis, identifying links to Darknet, mixers, and sanction lists."
+
+def admin_status_text(context: ContextTypes.DEFAULT_TYPE) -> str:
+    state = get_state(context)
+    mode = state.get("risk_mode", "auto")
+    return f"⚙️ <b>Admin Panel</b>\n\nCurrent mode: <b>{mode.upper()}</b>"
+
+
+# =========================
 # MENUS
 # =========================
 def main_menu() -> InlineKeyboardMarkup:
@@ -298,14 +322,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     BANNER_URL = "https://raw.githubusercontent.com/Artssoffs/lexguard-bot/main/lexguard_banner.png"
     await update.message.reply_photo(
         photo=BANNER_URL,
-        caption="🛡 <b>LexGuard AML</b>\n<i>Premium Wallet Screening</i>",
+        caption=welcome_text(),
         parse_mode="HTML",
         reply_markup=main_menu()
     )
 
 async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_admin(update.effective_user.id):
-        await update.message.reply_text("⚙️ Admin Panel", reply_markup=admin_menu(context))
+        await update.message.reply_text(admin_status_text(context), parse_mode="HTML", reply_markup=admin_menu(context))
 
 async def set_lang_eng(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     context.user_data["report_lang"] = "ENG"
@@ -420,7 +444,6 @@ async def admin_auditres(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("✅ Paid PDF audit sent to client!")
     except Exception:
         await update.message.reply_text("❌ Format: /auditres <ID> <LOW/MEDIUM/HIGH> <SCORE>")
-
 
 
 # =========================
@@ -636,4 +659,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
