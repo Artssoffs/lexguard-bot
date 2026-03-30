@@ -586,7 +586,7 @@ def main():
         return
 
     # Создаем папку data, если её нет (для Railway Volume)
-os.makedirs("/app/data", exist_ok=True)
+    os.makedirs("/app/data", exist_ok=True)
     persistence = PicklePersistence(filepath="/app/data/lexguard_data.pickle")
 
     app = ApplicationBuilder().token(TOKEN).persistence(persistence).build()
