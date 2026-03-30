@@ -428,43 +428,101 @@ async def admin_auditres(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # =========================
 async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
-    data, uid = q.data, q.from_user.id
+    await q.answer(cache_time=0)
+    data = q.data
+    uid = q.from_user.id
 
-    await q.answer()
+    if data == "scan":
+        context.user_data["flow"] = "scan"
+        await q.edit_message_text(
+            "<b>Send wallet address or TX hash</b>",
+            parse_mode="HTML",
+            reply_markup=back_menu(),
+        )
+        return
+
+    if data == "report":
+        context.user_data["flow"] = "report_target"
+        await q.edit_message_text(
+            "<b>Send wallet address for the report</b>",
+            parse_mode="HTML",
+            reply_markup=back_menu(),
+        )
+        return
+
+    if data == "pricing":
+        await q.edit_message_text(
+            pricing_text(),
+            parse_mode="HTML",
+            reply_markup=back_menu(),
+        )
+        return
+
+    if data == "about":
+        await q.edit_message_text(
+            about_text(),
+            parse_mode="HTML",
+            reply_markup=back_menu(),
+        )
+        return
 
     if data == "support":
         context.user_data["flow"] = "support_chat"
         await q.edit_message_text(
-            "<b>💬 Поддержка LexGuard</b>\n\nОпишите ваш вопрос или проблему. Наш оператор ответит вам прямо здесь!\n\n<b>Для выхода — /start</b>",
-            parse_mode="HTML", reply_markup=back_menu()
+            "💬 <b>Support Chat</b>\n\nSend your message, and it will be forwarded to admin.",
+            parse_mode="HTML",
+            reply_markup=back_menu(),
         )
         return
 
-    if data in ["pay:btc", "pay:eth"]:
-        await q.answer("⚠️ Network congested. Temporarily accepting only USDT TRC20.", show_alert=True)
+    if data == "back":
+        clear_flow(context)
+        await q.edit_message_text(
+            welcome_text(),
+            parse_mode="HTML",
+            reply_markup=main_menu(),
+        )
         return
 
-    if data == "scan":
-        context.user_data["flow"] = "scan"
-        await q.edit_message_text("🔍 <b>Quick Scan</b>\n\nEnter the wallet address or TX Hash for verification:", parse_mode="HTML", reply_markup=back_menu())
-    elif data == "report":
-        context.user_data["flow"] = "report_target"
-        await q.edit_message_text("🛡 <b>Custom Manual Audit by LexGuard AML</b>\n\nIn-depth analysis with an official verification certificate.\nEnter the wallet address:", parse_mode="HTML", reply_markup=back_menu())
-    elif data == "pricing":
-        text = f"💳 <b>Services & Pricing</b>\n\n• <b>Quick AI Scan:</b> Free (Basic scoring)\n• <b>Custom Manual Audit:</b> ${FULL_REPORT_PRICE_USD} (Detailed audit by our expert team)\n\n<i>We guarantee complete confidentiality.</i>"
-        await q.edit_message_text(text, parse_mode="HTML", reply_markup=back_menu())
-    elif data == "about":
-        await q.edit_message_text("🌐 <b>About LexGuard</b>\n\nLexGuard AML is a cutting-edge solution to protect your business from illicit cryptocurrency.\n\nWe conduct comprehensive blockchain analysis, identifying links to Darknet, mixers, and sanction lists.", parse_mode="HTML", reply_markup=back_menu())
-    elif data == "back":
-        clear_flow(context)
-        await q.edit_message_text(f"🛡 <b>{BOT_NAME}</b>\n<i>{BOT_TAGLINE}</i>\n\nSelect an action:", parse_mode="HTML", reply_markup=main_menu())
-    elif data == "pay:usdt":
-        context.user_data["flow"] = "report_tx"
-        await q.edit_message_text(f"💸 <b>Payment Instructions</b>\n\nSend <b>${FULL_REPORT_PRICE_USD} USDT</b> (TRC20) to:\n\n<code>{PAYMENT_WALLET}</code>\n\nAfter payment, send the transaction hash here.", parse_mode="HTML", reply_markup=back_menu())
-    elif data.startswith("mode:"):
-        if not is_admin(uid): return
-        context.bot_data["risk_mode"] = data.split(":")[1]
-        await q.edit_message_text("⚙️ Admin Panel", reply_markup=admin_menu(context))
+    if data.startswith("mode:") or data.startswith("risk:") or data in {"admin:status", "admin:nolive"}:
+        if not is_admin(uid):
+            await q.answer("Access denied", show_alert=True)
+            return
+
+        state = get_state(context)
+
+        if data == "admin:nolive":
+            await q.edit_message_text(
+                "Live AML mode is unavailable until AML_API_BASE_URL and AML_API_KEY are set.",
+                reply_markup=admin_menu(context),
+            )
+            return
+
+        if data.startswith("mode:"):
+            state["risk_mode"] = data.split(":", 1)[1]
+            await q.edit_message_text(
+                admin_status_text(context),
+                parse_mode="HTML",
+                reply_markup=admin_menu(context),
+            )
+            return
+
+        if data.startswith("risk:"):
+            state["manual_risk"] = normalize_risk(data.split(":", 1)[1])
+            await q.edit_message_text(
+                admin_status_text(context),
+                parse_mode="HTML",
+                reply_markup=admin_menu(context),
+            )
+            return
+
+        if data == "admin:status":
+            await q.edit_message_text(
+                admin_status_text(context),
+                parse_mode="HTML",
+                reply_markup=admin_menu(context),
+            )
+            return
 
 
 # =========================
