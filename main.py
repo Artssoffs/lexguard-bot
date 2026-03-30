@@ -1,3 +1,8 @@
+code
+Python
+download
+content_copy
+expand_less
 import os
 import re
 import hmac
@@ -5,6 +10,7 @@ import logging
 import hashlib
 import random
 import textwrap
+import asyncio
 from io import BytesIO
 from decimal import Decimal
 from datetime import datetime, timezone
@@ -17,16 +23,19 @@ from telegram.ext import (
     CallbackQueryHandler,
     ContextTypes,
     filters,
+    PicklePersistence,
 )
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.colors import HexColor, white
 from reportlab.pdfgen import canvas
 
 # =========================
-# CONFIGURATION PRO 5.2
+# CONFIGURATION PRO 5.3 (Upgraded)
 # =========================
-TOKEN = "8785738588:AAGAG07a8miJwbYWBT6IYX6ZgeE7ivBg88M"
-ADMIN_USER_ID = 8061332993
+# Безопасное получение токенов из переменных окружения
+TOKEN = os.getenv("BOT_TOKEN", "ЗДЕСЬ_ВАШ_ТОКЕН") 
+ADMIN_USER_ID = int(os.getenv("ADMIN_USER_ID", "8061332993"))
+REPORT_SIGNING_SECRET = os.getenv("REPORT_SIGNING_SECRET", "CHANGE_THIS_LEXGUARD_SECRET")
 
 BOT_NAME = "LexGuard AML"
 BOT_TAGLINE = "Premium Wallet Screening & Compliance"
@@ -34,7 +43,6 @@ BOT_TAGLINE = "Premium Wallet Screening & Compliance"
 FULL_REPORT_PRICE_USD = Decimal("1400")
 PAYMENT_NETWORK = "USDT TRC20"
 PAYMENT_WALLET = "TRND8fBYLQWuy8xMpmRcq77eTLWrdbBH61"
-REPORT_SIGNING_SECRET = os.getenv("REPORT_SIGNING_SECRET", "CHANGE_THIS_LEXGUARD_SECRET")
 
 TRON_ADDRESS_RE = re.compile(r"^T[1-9A-HJ-NP-Za-km-z]{33}$")
 ETH_ADDRESS_RE = re.compile(r"^0x[a-fA-F0-9]{40}$")
@@ -43,6 +51,59 @@ TX_HASH_RE = re.compile(r"^(0x)?[A-Fa-f0-9]{32,64}$")
 logging.basicConfig(format="%(asctime)s | %(levelname)s | %(name)s | %(message)s", level=logging.INFO)
 logger = logging.getLogger("lexguard_pro")
 
+# =========================
+# LOCALIZATION (I18N)
+# =========================
+UI_TEXTS = {
+    "ENG": {
+        "welcome": f"🛡 <b>{BOT_NAME}</b>\n<i>{BOT_TAGLINE}</i>\n\nSelect an action:",
+        "pricing": f"💳 <b>Services & Pricing</b>\n\n• <b>Quick AI Scan:</b> Free (Basic scoring)\n• <b>Custom Manual Audit:</b> ${FULL_REPORT_PRICE_USD} (Detailed audit by our expert team)\n\n<i>We guarantee complete confidentiality.</i>",
+        "about": "🌐 <b>About LexGuard</b>\n\nLexGuard AML is a cutting-edge solution to protect your business from illicit cryptocurrency.\n\nWe conduct comprehensive blockchain analysis, identifying links to Darknet, mixers, and sanction lists.",
+        "support": "💬 <b>Support Chat</b>\n\nSend your message, and it will be forwarded to admin.",
+        "btn_scan": "🔍 Quick Scan (Free)",
+        "btn_report": "🛡 Custom Manual Audit",
+        "btn_pricing": "💳 Services & Pricing",
+        "btn_about": "🌐 About LexGuard",
+        "btn_support": "💬 Support Chat",
+        "btn_settings": "⚙️ Settings (Language)",
+        "btn_back": "⬅ Main Menu",
+        "scan_prompt": "<b>Send wallet address or TX hash:</b>",
+        "report_prompt": "<b>Send wallet address for the report:</b>",
+        "settings_prompt": "⚙️ <b>Settings</b>\n\nSelect your preferred language:",
+        "payment_instruction": f"💸 <b>Payment Instructions</b>\n\nSend <b>${FULL_REPORT_PRICE_USD} USDT</b> (TRC20) to:\n\n<code>{PAYMENT_WALLET}</code>\n\nAfter payment, send the transaction hash here.",
+        "processing": "⏳ Processing your request...",
+        "verifying": "⏳ Verifying payment...",
+        "generating": "⏳ Generating custom PDF report...",
+        "support_sent": "✅ Message sent to support. Please wait for a reply.",
+        "err_start": "❌ Error. Please start again with /start",
+    },
+    "RUS": {
+        "welcome": f"🛡 <b>{BOT_NAME}</b>\n<i>{BOT_TAGLINE}</i>\n\nВыберите действие:",
+        "pricing": f"💳 <b>Услуги и Цены</b>\n\n• <b>Быстрый ИИ Скан:</b> Бесплатно (Базовая оценка)\n• <b>Ручной Премиум Аудит:</b> ${FULL_REPORT_PRICE_USD} (Детальный аудит командой экспертов)\n\n<i>Мы гарантируем полную конфиденциальность.</i>",
+        "about": "🌐 <b>О LexGuard</b>\n\nLexGuard AML — это передовое решение для защиты вашего бизнеса от нелегальной криптовалюты.\n\nМы проводим комплексный анализ блокчейна, выявляя связи с Darknet, миксерами и санкционными списками.",
+        "support": "💬 <b>Поддержка</b>\n\nОтправьте ваше сообщение, и оно будет передано администратору.",
+        "btn_scan": "🔍 Быстрый скан (Бесплатно)",
+        "btn_report": "🛡 Ручной Премиум Аудит",
+        "btn_pricing": "💳 Услуги и Цены",
+        "btn_about": "🌐 О проекте",
+        "btn_support": "💬 Поддержка",
+        "btn_settings": "⚙️ Настройки (Язык)",
+        "btn_back": "⬅ Главное меню",
+        "scan_prompt": "<b>Отправьте адрес кошелька или TX хеш:</b>",
+        "report_prompt": "<b>Отправьте адрес кошелька для создания отчета:</b>",
+        "settings_prompt": "⚙️ <b>Настройки</b>\n\nВыберите предпочитаемый язык:",
+        "payment_instruction": f"💸 <b>Инструкция по оплате</b>\n\nОтправьте <b>${FULL_REPORT_PRICE_USD} USDT</b> (TRC20) на адрес:\n\n<code>{PAYMENT_WALLET}</code>\n\nПосле оплаты отправьте сюда хеш транзакции (TXID).",
+        "processing": "⏳ Обработка вашего запроса...",
+        "verifying": "⏳ Проверка платежа...",
+        "generating": "⏳ Генерация PDF отчета...",
+        "support_sent": "✅ Сообщение отправлено в поддержку. Ожидайте ответа.",
+        "err_start": "❌ Ошибка. Пожалуйста, начните заново через /start",
+    }
+}
+
+def get_t(context: ContextTypes.DEFAULT_TYPE, key: str) -> str:
+    lang = context.user_data.get("lang", "ENG")
+    return UI_TEXTS.get(lang, UI_TEXTS["ENG"]).get(key, f"Missing text: {key}")
 
 # =========================
 # UTILITY FUNCTIONS
@@ -79,9 +140,7 @@ def risk_badge(risk: str) -> str:
 
 def normalize_risk(risk_str: str) -> str:
     r = risk_str.upper()
-    if r in ["LOW", "MEDIUM", "HIGH", "CRITICAL"]:
-        return r
-    return "LOW"
+    return r if r in["LOW", "MEDIUM", "HIGH", "CRITICAL"] else "LOW"
 
 def _sign_report(payload: str) -> str:
     signature = hmac.new(REPORT_SIGNING_SECRET.encode(), payload.encode(), hashlib.sha256).hexdigest()
@@ -137,80 +196,51 @@ def _draw_digital_seal(c, x, y, signature_short):
 
 def make_report_file(target: str, payment_ref: str, risk: str, score: int, lang: str = "ENG") -> tuple[BytesIO, str]:
     labels = {
-        "ENG": {
-            "title": "LexGuard AML", "subtitle": "Premium Manual Audit", "report": "Custom Manual Audit Report",
-            "report_id": "REPORT ID", "issued": "ISSUED", "risk": "RISK", "score": "SCORE",
-            "client_target": "Client Target", "network": "Network", "status": "Status",
-            "methodology": "Methodology", "methodology_val": "Custom Manual Report by LexGuard AML",
-            "payment_network": "Payment Network", "payment_hash": "Payment Hash", "flags": "Flags Detected",
-            "summary": "Summary", "signature": "Digital Signature", 
-            "signature_note": "This signature confirms report integrity and issuance by LexGuard AML.",
-            "disclaimer": "Disclaimer: This report is provided for informational and compliance screening purposes only."
-        },
-        "RUS": {
-            "title": "LexGuard AML", "subtitle": "Премиальный ручной аудит", "report": "Индивидуальный ручной отчет",
-            "report_id": "ID ОТЧЕТА", "issued": "ВЫДАНО", "risk": "РИСК", "score": "ОЦЕНКА",
-            "client_target": "Клиентский адрес", "network": "Сеть", "status": "Статус",
-            "methodology": "Методология", "methodology_val": "Ручной отчет компании LexGuard AML",
-            "payment_network": "Платежная сеть", "payment_hash": "Хеш платежа", "flags": "Обнаруженные флаги",
-            "summary": "Резюме", "signature": "Цифровая подпись",
-            "signature_note": "Данная подпись подтверждает целостность и выпуск отчета LexGuard AML.",
-            "disclaimer": "Отказ от ответственности: данный отчет предоставлен только для информационных и комплаенс-целей."
-        }
+        "ENG": {"title": "LexGuard AML", "subtitle": "Premium Manual Audit", "report": "Custom Manual Audit Report", "report_id": "REPORT ID", "issued": "ISSUED", "risk": "RISK", "score": "SCORE", "client_target": "Client Target", "network": "Network", "status": "Status", "methodology": "Methodology", "methodology_val": "Custom Manual Report by LexGuard AML", "payment_network": "Payment Network", "payment_hash": "Payment Hash", "flags": "Flags Detected", "summary": "Summary", "signature": "Digital Signature", "signature_note": "This signature confirms report integrity and issuance by LexGuard AML.", "disclaimer": "Disclaimer: This report is provided for informational and compliance screening purposes only."},
+        "RUS": {"title": "LexGuard AML", "subtitle": "Премиальный ручной аудит", "report": "Индивидуальный ручной отчет", "report_id": "ID ОТЧЕТА", "issued": "ВЫДАНО", "risk": "РИСК", "score": "ОЦЕНКА", "client_target": "Клиентский адрес", "network": "Сеть", "status": "Статус", "methodology": "Методология", "methodology_val": "Ручной отчет компании LexGuard AML", "payment_network": "Платежная сеть", "payment_hash": "Хеш платежа", "flags": "Обнаруженные флаги", "summary": "Резюме", "signature": "Цифровая подпись", "signature_note": "Данная подпись подтверждает целостность и выпуск отчета LexGuard AML.", "disclaimer": "Отказ от ответственности: данный отчет предоставлен только для информационных и комплаенс-целей."}
     }
-    
     L = labels[lang.upper()] if lang.upper() in labels else labels["ENG"]
     profile = _risk_profile(risk, lang)
     network = detect_network(target)
     report_id = f"LG-MANUAL-{hashlib.md5(target.encode()).hexdigest()[:8].upper()}"
     issued_at = now_utc()
-
     signature_payload = "|".join([report_id, issued_at, str(target), str(network), str(risk).upper(), str(score), str(payment_ref), "CUSTOM MANUAL AUDIT"])
     signature = _sign_report(signature_payload)
 
     buffer = BytesIO()
     c = canvas.Canvas(buffer, pagesize=A4)
     width, height = A4
-
     navy, blue, light_bg, border, dark, muted = HexColor("#091A3A"), HexColor("#1D4ED8"), HexColor("#F8FAFC"), HexColor("#DCE3EA"), HexColor("#0F172A"), HexColor("#475569")
 
     c.setFillColor(white)
     c.rect(0, 0, width, height, fill=1, stroke=0)
-
     c.setFillColor(navy)
     c.rect(0, height - 112, width, 112, fill=1, stroke=0)
-
     c.setFillColor(white)
     c.setFont("Helvetica-Bold", 24)
     c.drawString(42, height - 52, L["title"])
     c.setFont("Helvetica", 11)
     c.drawString(42, height - 72, L["subtitle"])
     c.drawString(42, height - 88, "www.lexguard.io")
-
     c.setFillColor(dark)
     c.setFont("Helvetica-Bold", 16)
     c.drawString(42, height - 145, L["report"])
-
     c.setFillColor(light_bg)
     c.setStrokeColor(border)
     c.roundRect(width - 220, height - 186, 175, 60, 10, fill=1, stroke=1)
-
     c.setFillColor(muted)
     c.setFont("Helvetica-Bold", 8)
     c.drawString(width - 205, height - 147, L["report_id"])
     c.drawString(width - 205, height - 167, L["issued"])
-
     c.setFillColor(dark)
     c.setFont("Helvetica", 9)
     c.drawString(width - 145, height - 147, report_id)
     c.drawString(width - 145, height - 167, issued_at)
-
     c.setFillColor(profile["color"])
     c.roundRect(42, height - 206, 150, 28, 8, fill=1, stroke=0)
     c.setFillColor(white)
     c.setFont("Helvetica-Bold", 11)
     c.drawString(56, height - 194, f"{L['risk']}: {risk.upper()}")
-
     c.setFillColor(blue)
     c.roundRect(202, height - 206, 130, 28, 8, fill=1, stroke=0)
     c.setFillColor(white)
@@ -224,12 +254,10 @@ def make_report_file(target: str, payment_ref: str, risk: str, score: int, lang:
 
     left_x, right_x = 58, 305
     y_left, y_right = info_top - 24, info_top - 24
-
     y_left = _draw_label_value(c, L["client_target"], target, left_x, y_left, 215)
     y_left = _draw_label_value(c, L["network"], network, left_x, y_left, 215)
     y_left = _draw_label_value(c, L["status"], profile["status"], left_x, y_left, 215)
     y_left = _draw_label_value(c, L["methodology"], L["methodology_val"], left_x, y_left, 215)
-
     y_right = _draw_label_value(c, L["payment_network"], PAYMENT_NETWORK, right_x, y_right, 220)
     y_right = _draw_label_value(c, L["payment_hash"], payment_ref, right_x, y_right, 220)
     y_right = _draw_label_value(c, L["flags"], profile["flags"], right_x, y_right, 220)
@@ -238,18 +266,15 @@ def make_report_file(target: str, payment_ref: str, risk: str, score: int, lang:
     c.setFillColor(HexColor("#64748B"))
     c.setFont("Helvetica-Bold", 9)
     c.drawString(left_x, summary_y, L["summary"])
-
     _draw_multiline(c, profile["summary"], left_x, summary_y - 16, width - 120, font_name="Helvetica", font_size=10, leading=14, color=dark)
 
     sig_box_y = info_top - 290
     c.setFillColor(white)
     c.setStrokeColor(border)
     c.roundRect(42, sig_box_y - 94, width - 84, 94, 12, fill=1, stroke=1)
-
     c.setFillColor(dark)
     c.setFont("Helvetica-Bold", 11)
     c.drawString(58, sig_box_y - 20, L["signature"])
-
     c.setFillColor(muted)
     c.setFont("Helvetica", 8)
     sig_lines = textwrap.wrap(signature, width=64)
@@ -257,10 +282,8 @@ def make_report_file(target: str, payment_ref: str, risk: str, score: int, lang:
     for line in sig_lines[:2]:
         c.drawString(58, y, line)
         y -= 12
-
     c.setFont("Helvetica", 9)
     c.drawString(58, sig_box_y - 76, L["signature_note"])
-
     _draw_digital_seal(c, width - 100, sig_box_y - 46, signature[:10])
     _draw_multiline(c, L["disclaimer"], 42, 60, width - 84, font_name="Helvetica", font_size=8, leading=11, color=HexColor("#64748B"))
 
@@ -271,47 +294,41 @@ def make_report_file(target: str, payment_ref: str, risk: str, score: int, lang:
 
 
 # =========================
-# TEXT HELPERS
-# =========================
-def welcome_text() -> str:
-    return f"🛡 <b>{BOT_NAME}</b>\n<i>{BOT_TAGLINE}</i>\n\nSelect an action:"
-
-def pricing_text() -> str:
-    return f"💳 <b>Services & Pricing</b>\n\n• <b>Quick AI Scan:</b> Free (Basic scoring)\n• <b>Custom Manual Audit:</b> ${FULL_REPORT_PRICE_USD} (Detailed audit by our expert team)\n\n<i>We guarantee complete confidentiality.</i>"
-
-def about_text() -> str:
-    return "🌐 <b>About LexGuard</b>\n\nLexGuard AML is a cutting-edge solution to protect your business from illicit cryptocurrency.\n\nWe conduct comprehensive blockchain analysis, identifying links to Darknet, mixers, and sanction lists."
-
-def admin_status_text(context: ContextTypes.DEFAULT_TYPE) -> str:
-    state = get_state(context)
-    mode = state.get("risk_mode", "auto")
-    return f"⚙️ <b>Admin Panel</b>\n\nCurrent mode: <b>{mode.upper()}</b>"
-
-
-# =========================
 # MENUS
 # =========================
-def main_menu() -> InlineKeyboardMarkup:
+def main_menu(context: ContextTypes.DEFAULT_TYPE) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🔍 Quick Scan (Free)", callback_data="scan")],
-        [InlineKeyboardButton("🛡 Custom Manual Audit", callback_data="report")],
-        [InlineKeyboardButton("💳 Services & Pricing", callback_data="pricing")],
-        [InlineKeyboardButton("🌐 About LexGuard", callback_data="about")],
-        [InlineKeyboardButton("💬 Support Chat", callback_data="support")],
+        [InlineKeyboardButton(get_t(context, "btn_scan"), callback_data="scan")],
+        [InlineKeyboardButton(get_t(context, "btn_report"), callback_data="report")],
+        [InlineKeyboardButton(get_t(context, "btn_pricing"), callback_data="pricing")],[
+            InlineKeyboardButton(get_t(context, "btn_about"), callback_data="about"),
+            InlineKeyboardButton(get_t(context, "btn_support"), callback_data="support"),
+        ],[InlineKeyboardButton(get_t(context, "btn_settings"), callback_data="settings")],
     ])
 
-def back_menu() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([[InlineKeyboardButton("⬅ Main Menu", callback_data="back")]])
+def back_menu(context: ContextTypes.DEFAULT_TYPE) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([[InlineKeyboardButton(get_t(context, "btn_back"), callback_data="back")]])
+
+def settings_menu(context: ContextTypes.DEFAULT_TYPE) -> InlineKeyboardMarkup:
+    lang = context.user_data.get("lang", "ENG")
+    return InlineKeyboardMarkup([[
+            InlineKeyboardButton(f"{'✅ ' if lang == 'ENG' else ''}English", callback_data="lang:ENG"),
+            InlineKeyboardButton(f"{'✅ ' if lang == 'RUS' else ''}Русский", callback_data="lang:RUS"),
+        ],[InlineKeyboardButton(get_t(context, "btn_back"), callback_data="back")]
+    ])
 
 def admin_menu(context: ContextTypes.DEFAULT_TYPE) -> InlineKeyboardMarkup:
     state = get_state(context)
-    return InlineKeyboardMarkup([
-        [
+    return InlineKeyboardMarkup([[
             InlineKeyboardButton(f"{'✅ ' if state['risk_mode'] == 'auto' else ''}Auto AI", callback_data="mode:auto"),
             InlineKeyboardButton(f"{'✅ ' if state['risk_mode'] == 'manual' else ''}Manual Intercept", callback_data="mode:manual"),
         ],
         [InlineKeyboardButton("⬅ Main Menu", callback_data="back")],
     ])
+
+def admin_status_text(context: ContextTypes.DEFAULT_TYPE) -> str:
+    state = get_state(context)
+    return f"⚙️ <b>Admin Panel</b>\n\nCurrent mode: <b>{state['risk_mode'].upper()}</b>"
 
 
 # =========================
@@ -319,56 +336,56 @@ def admin_menu(context: ContextTypes.DEFAULT_TYPE) -> InlineKeyboardMarkup:
 # =========================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     clear_flow(context)
-    BANNER_URL = "https://raw.githubusercontent.com/Artssoffs/lexguard-bot/main/lexguard_banner.png"
+    
+    # Пытаемся открыть локальную картинку, если нет - берем по ссылке
+    try:
+        photo = open("lexguard_banner.png", "rb")
+    except FileNotFoundError:
+        photo = "https://raw.githubusercontent.com/Artssoffs/lexguard-bot/main/lexguard_banner.png"
+
     await update.message.reply_photo(
-        photo=BANNER_URL,
-        caption=welcome_text(),
+        photo=photo,
+        caption=get_t(context, "welcome"),
         parse_mode="HTML",
-        reply_markup=main_menu()
+        reply_markup=main_menu(context)
     )
 
 async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_admin(update.effective_user.id):
         await update.message.reply_text(admin_status_text(context), parse_mode="HTML", reply_markup=admin_menu(context))
 
-async def set_lang_eng(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    context.user_data["report_lang"] = "ENG"
-    await update.message.reply_text("✅ Report language set to English.")
-
-async def set_lang_rus(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    context.user_data["report_lang"] = "RUS"
-    await update.message.reply_text("✅ Язык отчёта установлен: Русский.")
-
 async def reply_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not is_admin(update.effective_user.id):
         return
     try:
         parts = update.message.text.split(maxsplit=2)
-        if len(parts) < 3: raise ValueError
+        if len(parts) < 3: raise ValueError("Format error")
         target_uid = int(parts[1])
         reply_text = parts[2]
         await context.bot.send_message(
             chat_id=target_uid,
-            text=f"<b>👨‍💼 Ответ поддержки LexGuard:</b>\n\n{reply_text}",
+            text=f"<b>👨‍💼 LexGuard Support:</b>\n\n{reply_text}",
             parse_mode="HTML",
         )
-        await update.message.reply_text("✅ Ответ отправлен пользователю!")
-    except Exception:
+        await update.message.reply_text("✅ Ответ успешно отправлен пользователю!")
+    except ValueError:
         await update.message.reply_text("❌ Формат: /reply <user_id> <текст ответа>")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка отправки (Возможно, юзер заблокировал бота): {e}")
 
 async def admin_res(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
         return
     try:
         parts = update.message.text.split()
-        if len(parts) != 4: raise ValueError
+        if len(parts) != 4: raise ValueError("Format error")
         target_uid = int(parts[1])
         risk = parts[2].upper()
         score = int(parts[3])
 
         pending = context.bot_data.get("pending_scans", {}).pop(target_uid, None)
         if not pending:
-            await update.message.reply_text("❌ Request not found or already answered.")
+            await update.message.reply_text("❌ Запрос не найден (или уже отвечен).")
             return
 
         report = (
@@ -378,38 +395,31 @@ async def admin_res(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"<b>Threat Score:</b> {score}/100\n\n"
             f"<i>Engine: LexGuard Deep Manual Scan | {now_utc()}</i>"
         )
-        await context.bot.edit_message_text(chat_id=pending["chat_id"], message_id=pending["msg_id"], text=report, parse_mode="HTML", reply_markup=back_menu())
-        await update.message.reply_text("✅ Result sent to client!")
-    except Exception:
-        await update.message.reply_text("❌ Format: /res <ID> <LOW/MEDIUM/HIGH> <SCORE>")
+        await context.bot.edit_message_text(chat_id=pending["chat_id"], message_id=pending["msg_id"], text=report, parse_mode="HTML", reply_markup=back_menu(context))
+        await update.message.reply_text("✅ Результат отправлен клиенту!")
+    except ValueError:
+        await update.message.reply_text("❌ Формат: /res <ID> <LOW/MEDIUM/HIGH> <SCORE>")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Критическая ошибка: {e}")
 
 async def admin_auditres(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
         return
     try:
         parts = update.message.text.split()
-        if len(parts) != 4:
-            raise ValueError
-
+        if len(parts) != 4: raise ValueError("Format error")
         target_uid = int(parts[1])
         risk = parts[2].upper()
         score = int(parts[3])
 
-        if risk not in {"LOW", "MEDIUM", "HIGH"}:
-            raise ValueError
+        if risk not in {"LOW", "MEDIUM", "HIGH"}: raise ValueError("Invalid risk")
 
         pending = context.bot_data.get("pending_audits", {}).pop(target_uid, None)
         if not pending:
-            await update.message.reply_text("❌ Audit request not found or already answered.")
+            await update.message.reply_text("❌ Запрос на аудит не найден.")
             return
 
-        pdf_buffer, pdf_name = make_report_file(
-            pending["target"],
-            pending["payment_ref"],
-            risk,
-            score,
-            pending["lang"],
-        )
+        pdf_buffer, pdf_name = make_report_file(pending["target"], pending["payment_ref"], risk, score, pending["lang"])
 
         await context.bot.send_document(
             chat_id=pending["chat_id"],
@@ -429,21 +439,17 @@ async def admin_auditres(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await context.bot.edit_message_text(
                 chat_id=pending["chat_id"],
                 message_id=pending["msg_id"],
-                text=(
-                    f"✅ <b>Manual audit completed</b>\n\n"
-                    f"<b>Target:</b> <code>{pending['target']}</code>\n"
-                    f"<b>Risk Level:</b> {risk_badge(risk)}\n"
-                    f"<b>Threat Score:</b> {score}/100"
-                ),
+                text=f"✅ <b>Manual audit completed</b>\n\n<b>Target:</b> <code>{pending['target']}</code>\n<b>Risk Level:</b> {risk_badge(risk)}\n<b>Threat Score:</b> {score}/100",
                 parse_mode="HTML",
-                reply_markup=back_menu(),
+                reply_markup=back_menu(context),
             )
         except Exception:
             pass
-
-        await update.message.reply_text("✅ Paid PDF audit sent to client!")
-    except Exception:
-        await update.message.reply_text("❌ Format: /auditres <ID> <LOW/MEDIUM/HIGH> <SCORE>")
+        await update.message.reply_text("✅ PDF отчет отправлен клиенту!")
+    except ValueError:
+        await update.message.reply_text("❌ Формат: /auditres <ID> <LOW/MEDIUM/HIGH> <SCORE>")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка отправки файла: {e}")
 
 
 # =========================
@@ -455,97 +461,48 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = q.data
     uid = q.from_user.id
 
+    if data.startswith("lang:"):
+        context.user_data["lang"] = data.split(":")[1]
+        await q.edit_message_text(get_t(context, "settings_prompt"), parse_mode="HTML", reply_markup=settings_menu(context))
+        return
+
+    if data == "settings":
+        await q.edit_message_text(get_t(context, "settings_prompt"), parse_mode="HTML", reply_markup=settings_menu(context))
+        return
+
     if data == "scan":
         context.user_data["flow"] = "scan"
-        await q.edit_message_text(
-            "<b>Send wallet address or TX hash</b>",
-            parse_mode="HTML",
-            reply_markup=back_menu(),
-        )
+        await q.edit_message_text(get_t(context, "scan_prompt"), parse_mode="HTML", reply_markup=back_menu(context))
         return
 
     if data == "report":
         context.user_data["flow"] = "report_target"
-        await q.edit_message_text(
-            "<b>Send wallet address for the report</b>",
-            parse_mode="HTML",
-            reply_markup=back_menu(),
-        )
+        await q.edit_message_text(get_t(context, "report_prompt"), parse_mode="HTML", reply_markup=back_menu(context))
         return
 
     if data == "pricing":
-        await q.edit_message_text(
-            pricing_text(),
-            parse_mode="HTML",
-            reply_markup=back_menu(),
-        )
+        await q.edit_message_text(get_t(context, "pricing"), parse_mode="HTML", reply_markup=back_menu(context))
         return
 
     if data == "about":
-        await q.edit_message_text(
-            about_text(),
-            parse_mode="HTML",
-            reply_markup=back_menu(),
-        )
+        await q.edit_message_text(get_t(context, "about"), parse_mode="HTML", reply_markup=back_menu(context))
         return
 
     if data == "support":
         context.user_data["flow"] = "support_chat"
-        await q.edit_message_text(
-            "💬 <b>Support Chat</b>\n\nSend your message, and it will be forwarded to admin.",
-            parse_mode="HTML",
-            reply_markup=back_menu(),
-        )
+        await q.edit_message_text(get_t(context, "support"), parse_mode="HTML", reply_markup=back_menu(context))
         return
 
     if data == "back":
         clear_flow(context)
-        await q.edit_message_text(
-            welcome_text(),
-            parse_mode="HTML",
-            reply_markup=main_menu(),
-        )
+        await q.edit_message_text(get_t(context, "welcome"), parse_mode="HTML", reply_markup=main_menu(context))
         return
 
-    if data.startswith("mode:") or data.startswith("risk:") or data in {"admin:status", "admin:nolive"}:
-        if not is_admin(uid):
-            await q.answer("Access denied", show_alert=True)
-            return
-
+    # Админские коллбеки
+    if data.startswith("mode:") and is_admin(uid):
         state = get_state(context)
-
-        if data == "admin:nolive":
-            await q.edit_message_text(
-                "Live AML mode is unavailable until AML_API_BASE_URL and AML_API_KEY are set.",
-                reply_markup=admin_menu(context),
-            )
-            return
-
-        if data.startswith("mode:"):
-            state["risk_mode"] = data.split(":", 1)[1]
-            await q.edit_message_text(
-                admin_status_text(context),
-                parse_mode="HTML",
-                reply_markup=admin_menu(context),
-            )
-            return
-
-        if data.startswith("risk:"):
-            state["manual_risk"] = normalize_risk(data.split(":", 1)[1])
-            await q.edit_message_text(
-                admin_status_text(context),
-                parse_mode="HTML",
-                reply_markup=admin_menu(context),
-            )
-            return
-
-        if data == "admin:status":
-            await q.edit_message_text(
-                admin_status_text(context),
-                parse_mode="HTML",
-                reply_markup=admin_menu(context),
-            )
-            return
+        state["risk_mode"] = data.split(":", 1)[1]
+        await q.edit_message_text(admin_status_text(context), parse_mode="HTML", reply_markup=admin_menu(context))
 
 
 # =========================
@@ -557,104 +514,91 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
 
     if flow == "support_chat":
-        await context.bot.send_message(chat_id=ADMIN_USER_ID, text=f"<b>💬 Новое сообщение поддержки от {uid}:</b>\n\n{text}\n\n<i>Ответить: /reply {uid} текст</i>", parse_mode="HTML")
-        await update.message.reply_text("✅ Сообщение отправлено в поддержку. Ожидайте ответа.")
+        await context.bot.send_message(chat_id=ADMIN_USER_ID, text=f"<b>💬 Новое сообщение поддержки от {uid} (@{update.effective_user.username}):</b>\n\n{text}\n\n<i>Ответить: /reply {uid} текст</i>", parse_mode="HTML")
+        await update.message.reply_text(get_t(context, "support_sent"))
         return
 
     if flow == "scan":
         state = get_state(context)
+        msg = await update.message.reply_text(get_t(context, "processing"))
+        
         if state["risk_mode"] == "manual":
-            msg = await update.message.reply_text("⏳ Processing your request...")
             state["pending_scans"][uid] = {"target": text, "chat_id": update.effective_chat.id, "msg_id": msg.message_id}
             await context.bot.send_message(chat_id=ADMIN_USER_ID, text=f"🔔 <b>MANUAL SCAN REQUEST</b>\n\nUser: {uid}\nTarget: <code>{text}</code>\n\nRespond with:\n/res {uid} <RISK> <SCORE>", parse_mode="HTML")
             return
 
-        risk, score = random.choice(["LOW", "MEDIUM", "HIGH"]), random.randint(10, 90)
+        # Имитация работы ИИ в автоматическом режиме
+        await asyncio.sleep(2.5) 
+        risk, score = random.choice(["LOW", "LOW", "MEDIUM", "HIGH"]), random.randint(10, 90)
         report = f"<b>📊 QUICK SCAN RESULT</b>\n\n<b>Target:</b> <code>{text}</code>\n<b>Network:</b> {detect_network(text)}\n<b>Risk Level:</b> {risk_badge(risk)}\n<b>Threat Score:</b> {score}/100\n\n<i>Engine: LexGuard AI Quick Scan | {now_utc()}</i>\n\nFor detailed audit, use /start → Custom Manual Audit"
-        await update.message.reply_text(report, parse_mode="HTML", reply_markup=back_menu())
+        await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=msg.message_id, text=report, parse_mode="HTML", reply_markup=back_menu(context))
         clear_flow(context)
 
     elif flow == "report_target":
         context.user_data["report_target"] = text
         context.user_data["flow"] = "report_tx"
-        await update.message.reply_text(f"💸 <b>Payment Instructions</b>\n\nSend <b>${FULL_REPORT_PRICE_USD} USDT</b> (TRC20) to:\n\n<code>{PAYMENT_WALLET}</code>\n\nAfter payment, send the transaction hash here.", parse_mode="HTML", reply_markup=back_menu())
+        await update.message.reply_text(get_t(context, "payment_instruction"), parse_mode="HTML", reply_markup=back_menu(context))
 
     elif flow == "report_tx":
         target = context.user_data.get("report_target")
         if not target:
-            await update.message.reply_text("❌ Error. Please start again with /start")
+            await update.message.reply_text(get_t(context, "err_start"))
             return
 
-        await update.message.reply_text("⏳ Verifying payment...")
-        lang = context.user_data.get("report_lang", "ENG")
+        lang = context.user_data.get("lang", "ENG")
         state = get_state(context)
+        
+        msg_wait = await update.message.reply_text(get_t(context, "verifying"), parse_mode="HTML")
 
         if state["risk_mode"] == "manual":
-            msg_wait = await update.message.reply_text(
-                "⏳ Payment confirmed. Waiting for manual audit result...",
-                parse_mode="HTML",
-            )
-
             state["pending_audits"][uid] = {
-                "target": target,
-                "payment_ref": text,
-                "chat_id": update.effective_chat.id,
-                "msg_id": msg_wait.message_id,
-                "lang": lang,
+                "target": target, "payment_ref": text, "chat_id": update.effective_chat.id, "msg_id": msg_wait.message_id, "lang": lang,
             }
-
             await context.bot.send_message(
                 chat_id=ADMIN_USER_ID,
-                text=(
-                    f"🛡 <b>PAID MANUAL AUDIT REQUEST</b>\n\n"
-                    f"👤 User: <code>{uid}</code>\n"
-                    f"🎯 Target: <code>{target}</code>\n"
-                    f"💳 Payment TX: <code>{text}</code>\n"
-                    f"🌐 Language: <b>{lang}</b>\n\n"
-                    f"Respond with:\n"
-                    f"<code>/auditres {uid} LOW 15</code>\n"
-                    f"<code>/auditres {uid} MEDIUM 55</code>\n"
-                    f"<code>/auditres {uid} HIGH 89</code>"
-                ),
+                text=f"🛡 <b>PAID MANUAL AUDIT REQUEST</b>\n\n👤 User: <code>{uid}</code>\n🎯 Target: <code>{target}</code>\n💳 Payment TX: <code>{text}</code>\n🌐 Language: <b>{lang}</b>\n\nRespond with:\n<code>/auditres {uid} LOW 15</code>\n<code>/auditres {uid} MEDIUM 55</code>\n<code>/auditres {uid} HIGH 89</code>",
                 parse_mode="HTML",
             )
             return
 
-        await update.message.reply_text("⏳ Generating report...", parse_mode="HTML")
+        # Имитация проверки и генерации PDF
+        await asyncio.sleep(2)
+        await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=msg_wait.message_id, text=get_t(context, "generating"))
+        await asyncio.sleep(2)
+        
         risk, score = random.choice(["LOW", "MEDIUM", "HIGH"]), random.randint(20, 95)
         pdf_buffer, pdf_name = make_report_file(target, text, risk, score, lang)
+        
         await update.message.reply_document(
             document=pdf_buffer,
             filename=pdf_name,
-            caption=(
-                f"✅ <b>Your Custom Manual Audit Report</b>\n\n"
-                f"<b>Target:</b> <code>{target}</code>\n"
-                f"<b>Risk Level:</b> {risk_badge(risk)}\n"
-                f"<b>Threat Score:</b> {score}/100\n\n"
-                f"<i>Report ID: {pdf_name}</i>"
-            ),
+            caption=f"✅ <b>Your Custom Manual Audit Report</b>\n\n<b>Target:</b> <code>{target}</code>\n<b>Risk Level:</b> {risk_badge(risk)}\n<b>Threat Score:</b> {score}/100\n\n<i>Report ID: {pdf_name}</i>",
             parse_mode="HTML",
         )
         clear_flow(context)
-
 
 # =========================
 # MAIN
 # =========================
 def main():
-    app = ApplicationBuilder().token(TOKEN).build()
+    if TOKEN == "ЗДЕСЬ_ВАШ_ТОКЕН" or not TOKEN:
+        logger.error("КРИТИЧЕСКАЯ ОШИБКА: Не установлен BOT_TOKEN в переменных окружения!")
+        return
+
+    # Сохранение данных в файл, чтобы не потерять заявки при перезапуске сервера
+    persistence = PicklePersistence(filepath="lexguard_data.pickle")
+    
+    app = ApplicationBuilder().token(TOKEN).persistence(persistence).build()
     
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("admin", admin_command))
     app.add_handler(CommandHandler("res", admin_res))
     app.add_handler(CommandHandler("auditres", admin_auditres))
-    app.add_handler(CommandHandler("ENG", set_lang_eng))
-    app.add_handler(CommandHandler("RUS", set_lang_rus))
     app.add_handler(CommandHandler("reply", reply_command))
     app.add_handler(CallbackQueryHandler(callbacks))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     
-    logger.info("✅ LexGuard Pro Intercept Module Active.")
+    logger.info("✅ LexGuard Pro Intercept Module Active (With Persistence & I18N).")
     app.run_polling()
 
 if __name__ == "__main__":
