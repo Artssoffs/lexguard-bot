@@ -585,9 +585,10 @@ def main():
         logger.error("КРИТИЧЕСКАЯ ОШИБКА: Не установлен BOT_TOKEN в переменных окружения!")
         return
 
-    # Сохранение данных в файл, чтобы не потерять заявки при перезапуске сервера
-    persistence = PicklePersistence(filepath="lexguard_data.pickle")
-    
+    # Создаем папку data, если её нет (для Railway Volume)
+os.makedirs("/app/data", exist_ok=True)
+persistence = PicklePersistence(filepath="/app/data/lexguard_data.pickle")
+
     app = ApplicationBuilder().token(TOKEN).persistence(persistence).build()
     
     app.add_handler(CommandHandler("start", start))
