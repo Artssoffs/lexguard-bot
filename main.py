@@ -708,6 +708,7 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
+        await update.message.reply_text("⛔ Access denied. This command is available only to the admin desk.")
         return
     await update.message.reply_text(admin_menu_text(), parse_mode=ParseMode.HTML)
 
@@ -1002,9 +1003,21 @@ async def handle_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user = update.effective_user
     text = update.message.text.strip()
+    normalized_text = text.split()[0].lower()
     state = context.user_data.get("state", "")
 
     db.upsert_user(user.id, user.username, user.first_name)
+
+    # Fallback for clients/chats where commands can arrive as plain text.
+    if re.fullmatch(r"/start(@[\w_]+)?", normalized_text):
+        await start(update, context)
+        return
+    if re.fullmatch(r"/cancel(@[\w_]+)?", normalized_text):
+        await cancel(update, context)
+        return
+    if re.fullmatch(r"/admin(@[\w_]+)?", normalized_text):
+        await admin_command(update, context)
+        return
 
     if state == "wait_scan_target":
         network = detect_network(text)
