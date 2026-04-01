@@ -14,6 +14,7 @@ from io import BytesIO
 from decimal import Decimal, InvalidOperation
 from datetime import datetime, timezone
 from typing import Optional, Tuple
+from dotenv import load_dotenv
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
@@ -32,8 +33,10 @@ from reportlab.pdfgen import canvas
 # =========================================================
 # CONFIGURATION
 # =========================================================
-TOKEN = os.getenv("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
-ADMIN_USER_ID = int(os.getenv("ADMIN_USER_ID", "123456789"))
+load_dotenv()
+
+TOKEN = os.getenv("TELEGRAM_BOT_TOKEN") or os.getenv("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
+ADMIN_USER_ID = int(os.getenv("ADMIN_ID") or os.getenv("ADMIN_USER_ID", "123456789"))
 BOT_NAME = os.getenv("BOT_NAME", "LexGuard AML Pro")
 FULL_REPORT_PRICE_USD = Decimal(os.getenv("FULL_REPORT_PRICE_USD", "1400"))
 PAYMENT_WALLET = os.getenv("PAYMENT_WALLET", "TRND8fBYLQWuy8xMpmRcq77eTLWrdbBH61")
