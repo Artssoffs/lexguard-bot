@@ -726,39 +726,50 @@ async def process_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await send_dashboard(update, context)
         return
 
+    async def edit_callback_message(text: str, reply_markup: Optional[InlineKeyboardMarkup] = None):
+        if q.message and (q.message.photo or q.message.document):
+            await q.edit_message_caption(
+                caption=text,
+                parse_mode=ParseMode.HTML,
+                reply_markup=reply_markup,
+            )
+        else:
+            await q.edit_message_text(
+                text=text,
+                parse_mode=ParseMode.HTML,
+                reply_markup=reply_markup,
+            )
+
     if data == "ui_scan":
         context.user_data["state"] = "wait_scan_target"
-        await q.edit_message_text(
+        await edit_callback_message(
             "⚡ <b>Quick Check</b>\n\nSend the wallet address or transaction hash for manual risk grading.",
-            parse_mode=ParseMode.HTML,
             reply_markup=back_menu(),
         )
         return
 
     if data == "ui_audit":
         context.user_data["state"] = "wait_audit_target"
-        await q.edit_message_text(
+        await edit_callback_message(
             "💎 <b>Manual Premium Audit</b>\n\nSend the target wallet address for a full analyst-reviewed PDF audit.",
-            parse_mode=ParseMode.HTML,
             reply_markup=back_menu(),
         )
         return
 
     if data == "ui_pricing":
-        await q.edit_message_text(pricing_text(), parse_mode=ParseMode.HTML, reply_markup=back_menu())
+        await edit_callback_message(pricing_text(), reply_markup=back_menu())
         return
 
     if data == "ui_support":
         context.user_data["state"] = "wait_support_msg"
-        await q.edit_message_text(
+        await edit_callback_message(
             "🎧 <b>Analyst Support</b>\n\nSend your message below. The support desk will reply in this chat.",
-            parse_mode=ParseMode.HTML,
             reply_markup=back_menu(),
         )
         return
 
     if data == "ui_about":
-        await q.edit_message_text(about_text(), parse_mode=ParseMode.HTML, reply_markup=back_menu())
+        await edit_callback_message(about_text(), reply_markup=back_menu())
         return
 
     # Support reply initiation
