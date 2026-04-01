@@ -28,10 +28,13 @@ from telegram.ext import (
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.colors import HexColor, white
 from reportlab.pdfgen import canvas
+from dotenv import load_dotenv
 
 # =========================================================
 # CONFIGURATION
 # =========================================================
+load_dotenv()
+
 TOKEN = os.getenv("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
 ADMIN_USER_ID = int(os.getenv("ADMIN_USER_ID", "123456789"))
 BOT_NAME = os.getenv("BOT_NAME", "LexGuard AML Pro")
