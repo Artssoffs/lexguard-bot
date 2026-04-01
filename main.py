@@ -1,8 +1,3 @@
-code
-Python
-download
-content_copy
-expand_less
 import os
 import re
 import hmac
@@ -16,6 +11,7 @@ from decimal import Decimal
 from datetime import datetime, timezone
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.error import NetworkError
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -28,10 +24,14 @@ from telegram.ext import (
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.colors import HexColor, white
 from reportlab.pdfgen import canvas
+from dotenv import load_dotenv
 
 # =========================
 # CONFIGURATION PRO 5.3 (Upgraded)
 # =========================
+# Загружаем переменные окружения из .env (если файл есть)
+load_dotenv()
+
 # Безопасное получение токенов из переменных окружения
 TOKEN = os.getenv("BOT_TOKEN", "ЗДЕСЬ_ВАШ_ТОКЕН") 
 ADMIN_USER_ID = int(os.getenv("ADMIN_USER_ID", "8061332993"))
@@ -585,9 +585,10 @@ def main():
         logger.error("КРИТИЧЕСКАЯ ОШИБКА: Не установлен BOT_TOKEN в переменных окружения!")
         return
 
-    # Создаем папку data, если её нет (для Railway Volume)
-    os.makedirs("/app/data", exist_ok=True)
-    persistence = PicklePersistence(filepath="/app/data/lexguard_data.pickle")
+    # Создаем папку data, если её нет
+    data_dir = os.getenv("BOT_DATA_DIR", "data")
+    os.makedirs(data_dir, exist_ok=True)
+    persistence = PicklePersistence(filepath=os.path.join(data_dir, "lexguard_data.pickle"))
 
     app = ApplicationBuilder().token(TOKEN).persistence(persistence).build()
     
@@ -600,7 +601,12 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     
     logger.info("✅ LexGuard Pro Intercept Module Active (With Persistence & I18N).")
-    app.run_polling()
+    try:
+        app.run_polling()
+    except NetworkError as e:
+        logger.error(f"Сетевая ошибка при подключении к Telegram API: {e}")
+    except Exception as e:
+        logger.exception(f"Непредвиденная ошибка запуска бота: {e}")
 
 if __name__ == "__main__":
     main()
