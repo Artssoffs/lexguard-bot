@@ -507,9 +507,9 @@ def generate_pdf(target: str, tx_hash: str, risk: str, score: int, analyst_note:
 def main_menu() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("⚡ Quick Check", callback_data="ui_scan")],
-        [InlineKeyboardButton("💎 Manual Premium Audit", callback_data="ui_audit")],
+        [InlineKeyboardButton("💎 Manual Premium Reported AML•KYC", callback_data="ui_audit")],
         [InlineKeyboardButton("💼 Services & Pricing", callback_data="ui_pricing")],
-        [InlineKeyboardButton("🎧 Analyst Support", callback_data="ui_support")],
+        [InlineKeyboardButton("💭 Analyst Support", callback_data="ui_support")],
         [InlineKeyboardButton("🛡 About LexGuard", callback_data="ui_about")],
     ])
 
@@ -581,7 +581,7 @@ def pricing_text() -> str:
         "💼 <b>Services & Pricing</b>\n\n"
         "⚡ <b>Quick Check</b>\n"
         "Manual risk grading by analyst desk.\n\n"
-        "💎 <b>Premium Manual Audit</b>\n"
+        "💎 <b>Premium Reported AML•KYC</b>\n"
         f"Full PDF report, digital certification, analyst decision note.\n"
         f"Fee: <b>${FULL_REPORT_PRICE_USD}</b>\n"
         f"Payment network: <b>{h(PAYMENT_NETWORK)}</b>\n"
@@ -601,7 +601,7 @@ def quick_check_submitted_text(request_id: int, target: str) -> str:
 
 def audit_payment_text(request_id: int, target: str) -> str:
     return (
-        "💎 <b>Manual Premium Audit</b>\n\n"
+        "💎 <b>Manual Premium Reported AML•KYC</b>\n\n"
         f"Request ID: <code>{request_id}</code>\n"
         f"Target: <code>{h(target)}</code>\n"
         f"Amount due: <b>${FULL_REPORT_PRICE_USD}</b>\n"
@@ -630,13 +630,13 @@ def scan_result_text(request_id: int, target: str, risk: str, score: int, note: 
         f"<b>Risk Level:</b> {get_risk_ui(risk)}\n"
         f"<b>Confidence Score:</b> {score}/100"
         f"{extra}\n\n"
-        "<i>Powered by LexGuard AML Pro</i>"
+        "<i>Powered by LexGuard AML•KYC Service</i>"
     )
 
 
 def audit_caption_text(request_id: int, target: str, risk: str, score: int, report_id: str) -> str:
     return (
-        "💎 <b>PREMIUM AUDIT COMPLETE</b>\n\n"
+        "💎 <b>PREMIUM AML•KYC COMPLETE</b>\n\n"
         f"<b>Request ID:</b> <code>{request_id}</code>\n"
         f"<b>Report ID:</b> <code>{report_id}</code>\n"
         f"<b>Target:</b> <code>{h(target)}</code>\n"
@@ -761,7 +761,7 @@ async def process_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "ui_audit":
         context.user_data["state"] = "wait_audit_target"
         await edit_callback_message(
-            "💎 <b>Manual Premium Audit</b>\n\nSend the target wallet address for a full analyst-reviewed PDF audit.",
+            "💎 <b>Premium Reported AML•KYC</b>\n\nSend the target wallet address for a full analyst-reviewed PDF audit.",
             reply_markup=back_menu(),
         )
         return
@@ -773,7 +773,7 @@ async def process_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "ui_support":
         context.user_data["state"] = "wait_support_msg"
         await edit_callback_message(
-            "🎧 <b>Analyst Support</b>\n\nSend your message below. The support desk will reply in this chat.",
+            "💭 <b>Analyst Support</b>\n\nSend your message below. The support desk will reply in this chat.",
             reply_markup=back_menu(),
         )
         return
@@ -1078,7 +1078,7 @@ async def handle_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
         admin_text = (
-            "💎 <b>PREMIUM AUDIT PAYMENT SUBMITTED</b>\n\n"
+            
             f"<b>Request ID:</b> <code>{request_id}</code>\n"
             f"<b>User ID:</b> <code>{user.id}</code>\n"
             f"<b>Target:</b> <code>{h(request['target'])}</code>\n"
@@ -1106,7 +1106,7 @@ async def handle_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
         admin_text = (
-            "🎧 <b>NEW SUPPORT TICKET</b>\n\n"
+            "💭 <b>NEW SUPPORT TICKET</b>\n\n"
             f"<b>Ticket ID:</b> <code>{ticket_id}</code>\n"
             f"<b>User ID:</b> <code>{user.id}</code>\n"
             f"<b>Username:</b> @{h(user.username) if user.username else 'N/A'}\n\n"
