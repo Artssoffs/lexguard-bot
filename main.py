@@ -82,9 +82,10 @@ class Database:
             username TEXT,
             target TEXT NOT NULL,
             network TEXT,
-            status TEXT NOT NULL DEFAULT 'PENDING',
-            risk TEXT,
-            score INTEGER,
+            status TEXT NOT NULL DEFAULT 'PENDING'
+                CHECK (status IN ('PENDING', 'COMPLETED')),
+            risk TEXT CHECK (risk IN ('LOW', 'MEDIUM', 'HIGH', 'CRITICAL') OR risk IS NULL),
+            score INTEGER CHECK (score BETWEEN 0 AND 100 OR score IS NULL),
             analyst_note TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             completed_at TIMESTAMP
@@ -102,11 +103,12 @@ class Database:
             payment_network TEXT,
             payment_wallet TEXT,
             price_usd TEXT,
-            status TEXT NOT NULL DEFAULT 'AWAITING_PAYMENT',
-            risk TEXT,
-            score INTEGER,
+            status TEXT NOT NULL DEFAULT 'AWAITING_PAYMENT'
+                CHECK (status IN ('AWAITING_PAYMENT', 'UNDER_REVIEW', 'COMPLETED')),
+            risk TEXT CHECK (risk IN ('LOW', 'MEDIUM', 'HIGH', 'CRITICAL') OR risk IS NULL),
+            score INTEGER CHECK (score BETWEEN 0 AND 100 OR score IS NULL),
             analyst_note TEXT,
-            report_id TEXT,
+            report_id TEXT UNIQUE,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             completed_at TIMESTAMP
         )
@@ -118,11 +120,19 @@ class Database:
             user_id INTEGER NOT NULL,
             username TEXT,
             message TEXT NOT NULL,
-            status TEXT NOT NULL DEFAULT 'OPEN',
+            status TEXT NOT NULL DEFAULT 'OPEN'
+                CHECK (status IN ('OPEN', 'REPLIED')),
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             replied_at TIMESTAMP
         )
         """)
+
+        # Performance indexes for admin dashboards and request resolution.
+        c.execute("CREATE INDEX IF NOT EXISTS idx_scan_user_status ON scan_requests(user_id, status)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_scan_created_at ON scan_requests(created_at)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_audit_user_status ON audit_requests(user_id, status)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_audit_created_at ON audit_requests(created_at)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_ticket_user_status ON support_tickets(user_id, status)")
 
         self.conn.commit()
 
