@@ -8,8 +8,10 @@ import re
 import hmac
 import html
 import hashlib
+import fcntl
 import sqlite3
 import logging
+from contextlib import contextmanager
 from io import BytesIO
 from decimal import Decimal, InvalidOperation
 from datetime import datetime, timezone
@@ -51,6 +53,7 @@ PAYMENT_NETWORK = os.getenv("PAYMENT_NETWORK", "USDT (TRC20)")
 SECRET_KEY = os.getenv("REPORT_SIGNING_SECRET", "LEXGUARD_ENTERPRISE_KEY")
 START_BANNER_PATH = os.getenv("START_BANNER_PATH", "lexguard_banner.png")
 DATABASE_PATH = os.getenv("DATABASE_PATH", "lexguard.db")
+INSTANCE_LOCK_PATH = os.getenv("INSTANCE_LOCK_PATH", "/tmp/lexguard-bot.lock")
 
 logging.basicConfig(
     level=logging.INFO,
@@ -1278,24 +1281,44 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     logger.exception("Unhandled exception", exc_info=context.error)
 
 
+@contextmanager
+def single_instance_lock(lock_path: str):
+    lock_file = open(lock_path, "w")
+    try:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        lock_file.write(str(os.getpid()))
+        lock_file.flush()
+        yield
+    finally:
+        try:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+        except OSError:
+            pass
+        lock_file.close()
+
+
 def main():
     if TOKEN == "YOUR_BOT_TOKEN_HERE":
         raise RuntimeError("Set BOT_TOKEN before starting the bot.")
 
-    app = ApplicationBuilder().token(TOKEN).build()
+    try:
+        with single_instance_lock(INSTANCE_LOCK_PATH):
+            app = ApplicationBuilder().token(TOKEN).build()
 
-    app.add_error_handler(error_handler)
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("cancel", cancel))
-    app.add_handler(CommandHandler("admin", admin_command))
-    app.add_handler(CommandHandler("scanres", scanres_command))
-    app.add_handler(CommandHandler("auditres", auditres_command))
-    app.add_handler(CommandHandler("reply", reply_command))
-    app.add_handler(CallbackQueryHandler(process_callbacks))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_messages))
+            app.add_error_handler(error_handler)
+            app.add_handler(CommandHandler("start", start))
+            app.add_handler(CommandHandler("cancel", cancel))
+            app.add_handler(CommandHandler("admin", admin_command))
+            app.add_handler(CommandHandler("scanres", scanres_command))
+            app.add_handler(CommandHandler("auditres", auditres_command))
+            app.add_handler(CommandHandler("reply", reply_command))
+            app.add_handler(CallbackQueryHandler(process_callbacks))
+            app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_messages))
 
-    logger.info("🚀 %s starting...", BOT_NAME)
-    app.run_polling(close_loop=False)
+            logger.info("🚀 %s starting...", BOT_NAME)
+            app.run_polling(close_loop=False)
+    except BlockingIOError:
+        logger.error("Another LexGuard bot instance is already running. Exiting.")
 
 
 if __name__ == "__main__":
