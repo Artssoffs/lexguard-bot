@@ -1,5 +1,5 @@
 """
-LexGuard AML Pro - Flagship Edition
+LexGuard AML • Pro - Flagship Edition
 Institutional Grade Blockchain Analysis
 """
 
