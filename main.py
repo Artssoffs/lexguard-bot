@@ -571,7 +571,7 @@ def pricing_text() -> str:
         "💼 <b>Services & Pricing</b>\n\n"
         "⚡ <b>Quick Check</b>\n"
         "Manual risk grading by analyst desk.\n\n"
-        "💎 <b>Manual Premium Reported AML•KYC</b>\n"
+        "💎 <b>Premium Reported AML•KYC</b>\n"
         f"Full PDF report, digital certification, analyst decision note.\n"
         f"Fee: <b>${FULL_REPORT_PRICE_USD}</b>\n"
         f"Payment network: <b>{h(PAYMENT_NETWORK)}</b>\n"
@@ -620,13 +620,13 @@ def scan_result_text(request_id: int, target: str, risk: str, score: int, note: 
         f"<b>Risk Level:</b> {get_risk_ui(risk)}\n"
         f"<b>Confidence Score:</b> {score}/100"
         f"{extra}\n\n"
-        "<i>Powered by LexGuard AML Pro</i>"
+        "<i>Powered by LexGuard AML•KYC Service</i>"
     )
 
 
 def audit_caption_text(request_id: int, target: str, risk: str, score: int, report_id: str) -> str:
     return (
-        "💎 <b>PREMIUM AUDIT COMPLETE</b>\n\n"
+        "💎 <b>PREMIUM AML•KYC COMPLETE</b>\n\n"
         f"<b>Request ID:</b> <code>{request_id}</code>\n"
         f"<b>Report ID:</b> <code>{report_id}</code>\n"
         f"<b>Target:</b> <code>{h(target)}</code>\n"
@@ -751,7 +751,7 @@ async def process_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "ui_audit":
         context.user_data["state"] = "wait_audit_target"
         await edit_callback_message(
-            "💎 <b>Manual Premium Reported AML•KYC</b>\n\nSend the target wallet address for a full analyst-reviewed PDF audit.",
+            "💎 <b>Premium Reported AML•KYC</b>\n\nSend the target wallet address for a full analyst-reviewed PDF audit.",
             reply_markup=back_menu(),
         )
         return
