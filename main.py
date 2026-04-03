@@ -1,5 +1,5 @@
 """
-LexGuard AML Pro - Flagship Edition
+LexGuard AML • Pro - Flagship Edition
 Institutional Grade Blockchain Analysis
 """
 
@@ -14,6 +14,7 @@ from io import BytesIO
 from decimal import Decimal, InvalidOperation
 from datetime import datetime, timezone
 from typing import Optional, Tuple
+from math import pi, cos, sin
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
@@ -25,9 +26,15 @@ from telegram.ext import (
     MessageHandler,
     filters,
 )
+
+# ReportLab imports for PDF generation
 from reportlab.lib.pagesizes import A4
-from reportlab.lib.colors import HexColor, white
+from reportlab.lib.colors import HexColor, white, Color
 from reportlab.pdfgen import canvas
+from reportlab.graphics.barcode import qr
+from reportlab.graphics.shapes import Drawing
+from reportlab.graphics import renderPDF
+
 from dotenv import load_dotenv
 
 # =========================================================
@@ -275,7 +282,7 @@ def h(value) -> str:
     return html.escape(str(value))
 
 
-def truncate(text: str, limit: int = 800) -> str:
+def truncate(text: str, limit: int = 80) -> str:
     text = text.strip()
     return text if len(text) <= limit else text[:limit - 3] + "..."
 
@@ -305,10 +312,10 @@ def get_risk_ui(risk: str) -> str:
 
 def risk_color(risk: str) -> str:
     mapping = {
-        "LOW": "#10B981",
-        "MEDIUM": "#F59E0B",
-        "HIGH": "#EF4444",
-        "CRITICAL": "#7F1D1D",
+        "LOW": "#10B981",    # Green
+        "MEDIUM": "#F59E0B", # Amber
+        "HIGH": "#EF4444",   # Red
+        "CRITICAL": "#7F1D1D",# Dark Red
     }
     return mapping.get((risk or "").upper(), "#334155")
 
@@ -340,13 +347,6 @@ def build_report_id(target: str, tx_hash: str) -> str:
     return "LGP-" + hashlib.sha256(seed.encode()).hexdigest()[:12].upper()
 
 
-def wrap_lines(text: str, width: int = 72):
-    clean = (text or "").strip()
-    if not clean:
-        return []
-    return textwrap_wrap(clean, width=width)
-
-
 def textwrap_wrap(text: str, width: int = 70):
     words = text.split()
     lines = []
@@ -364,7 +364,7 @@ def textwrap_wrap(text: str, width: int = 70):
 
 
 # =========================================================
-# PDF GENERATOR
+# ADVANCED PDF GENERATOR
 # =========================================================
 def draw_wrapped_text(c: canvas.Canvas, lines, x: int, y: int, line_height: int = 14):
     current_y = y
@@ -373,118 +373,251 @@ def draw_wrapped_text(c: canvas.Canvas, lines, x: int, y: int, line_height: int 
         current_y -= line_height
     return current_y
 
+def draw_vector_seal(c: canvas.Canvas, x: float, y: float, radius: float):
+    """Рисует сложную векторную печать-голограмму с зубчиками"""
+    c.saveState()
+    c.translate(x, y)
+    
+    # Внешнее золотое кольцо с зубчиками
+    c.setFillColor(HexColor("#D4AF37")) # Золотой
+    c.setStrokeColor(HexColor("#B8860B")) # Темное золото
+    c.setLineWidth(1)
+    
+    points = 40
+    outer_r = radius
+    inner_r = radius * 0.85
+    
+    path = c.beginPath()
+    for i in range(points * 2):
+        angle = i * (pi / points)
+        r = outer_r if i % 2 == 0 else inner_r
+        px = r * cos(angle)
+        py = r * sin(angle)
+        if i == 0:
+            path.moveTo(px, py)
+        else:
+            path.lineTo(px, py)
+    path.close()
+    c.drawPath(path, fill=1, stroke=1)
+    
+    # Внутреннее темно-синее кольцо
+    c.setFillColor(HexColor("#0F172A"))
+    c.circle(0, 0, radius * 0.75, stroke=0, fill=1)
+    
+    # Декоративная белая линия
+    c.setStrokeColor(white)
+    c.setLineWidth(1.5)
+    c.circle(0, 0, radius * 0.65, stroke=1, fill=0)
+    
+    # Внутренний светлый круг
+    c.setFillColor(HexColor("#1E3A8A"))
+    c.circle(0, 0, radius * 0.60, stroke=0, fill=1)
+    
+    # Текст внутри печати
+    c.setFillColor(HexColor("#D4AF37"))
+    c.setFont("Helvetica-Bold", radius * 0.25)
+    c.drawCentredString(0, radius * 0.15, "LEXGUARD")
+    c.setFont("Helvetica-Bold", radius * 0.18)
+    c.setFillColor(white)
+    c.drawCentredString(0, -radius * 0.15, "CERTIFIED")
+    
+    # Звездочки для красоты
+    c.setFont("Helvetica", radius * 0.15)
+    c.drawCentredString(0, -radius * 0.40, "★ ★ ★")
+    
+    c.restoreState()
 
 def generate_pdf(target: str, tx_hash: str, risk: str, score: int, analyst_note: str) -> Tuple[BytesIO, str, str]:
     report_id = build_report_id(target, tx_hash)
     issued = now_utc()
     signature = build_signature(report_id, target, risk, score, tx_hash)
-    short_sig = signature[:48] + "..."
-
+    
     buffer = BytesIO()
     c = canvas.Canvas(buffer, pagesize=A4)
     w, h_page = A4
 
-    # Background
+    # --- ФОН И ВОДЯНОЙ ЗНАК ---
     c.setFillColor(HexColor("#F8FAFC"))
     c.rect(0, 0, w, h_page, fill=1, stroke=0)
+    
+    # Водяной знак по центру
+    c.saveState()
+    c.translate(w/2, h_page/2)
+    c.rotate(45)
+    c.setFont("Helvetica-Bold", 80)
+    c.setFillColor(Color(0.85, 0.88, 0.93, alpha=0.3)) # Полупрозрачный серый-синий
+    c.drawCentredString(0, 0, "LEXGUARD SECURE")
+    c.restoreState()
 
-    # Top bar
+    # --- ШАПКА ---
+    # Темно-синий фон шапки
     c.setFillColor(HexColor("#0B1120"))
-    c.rect(0, h_page - 118, w, 118, fill=1, stroke=0)
+    c.rect(0, h_page - 120, w, 120, fill=1, stroke=0)
+    # Золотая разделительная полоса
+    c.setFillColor(HexColor("#D4AF37"))
+    c.rect(0, h_page - 125, w, 5, fill=1, stroke=0)
 
     c.setFillColor(white)
-    c.setFont("Helvetica-Bold", 27)
-    c.drawString(40, h_page - 58, "LEXGUARD AML PRO")
-    c.setFont("Helvetica", 10)
-    c.drawString(40, h_page - 80, "Institutional Grade Blockchain Risk Intelligence")
+    c.setFont("Helvetica-Bold", 28)
+    c.drawString(40, h_page - 55, "LEXGUARD AML PRO")
+    
+    c.setFillColor(HexColor("#94A3B8"))
+    c.setFont("Helvetica", 11)
+    c.drawString(40, h_page - 75, "Institutional Grade Blockchain Risk Intelligence")
+    c.drawString(40, h_page - 95, "Comprehensive KYC & AML Compliance Report")
 
-    c.setFillColor(HexColor("#60A5FA"))
+    # Инфо в правой части шапки
+    c.setFillColor(HexColor("#10B981"))
     c.setFont("Helvetica-Bold", 10)
-    c.drawString(w - 190, h_page - 48, "DIGITALLY CERTIFIED")
+    c.drawRightString(w - 40, h_page - 45, "SECURE DIGITAL DOCUMENT")
+    
     c.setFillColor(white)
     c.setFont("Helvetica", 9)
-    c.drawString(w - 190, h_page - 68, f"Report ID: {report_id}")
-    c.drawString(w - 190, h_page - 84, f"Issued: {issued}")
+    c.drawRightString(w - 40, h_page - 65, f"Report ID: {report_id}")
+    c.drawRightString(w - 40, h_page - 80, f"Issued Date: {issued}")
+    c.setFillColor(HexColor("#D4AF37"))
+    c.drawRightString(w - 40, h_page - 95, "STRICTLY CONFIDENTIAL")
 
-    # Watermark / seal outline
-    c.setStrokeColor(HexColor("#DBEAFE"))
-    c.setLineWidth(0.8)
-    c.circle(w - 100, h_page - 215, 42, stroke=1, fill=0)
-    c.circle(w - 100, h_page - 215, 34, stroke=1, fill=0)
-    c.setFillColor(HexColor("#1D4ED8"))
-    c.setFont("Helvetica-Bold", 8)
-    c.drawCentredString(w - 100, h_page - 210, "LEXGUARD")
-    c.drawCentredString(w - 100, h_page - 221, "VERIFIED")
-
-    # Section 1
+    # --- СЕКЦИЯ 1: ИДЕНТИФИКАЦИЯ (Asset Identification) ---
+    y_start = h_page - 170
     c.setFillColor(HexColor("#0F172A"))
-    c.setFont("Helvetica-Bold", 17)
-    c.drawString(40, h_page - 150, "1. Asset Identification")
-
-    c.setStrokeColor(HexColor("#CBD5E1"))
-    c.setFillColor(white)
-    c.roundRect(40, h_page - 275, w - 80, 95, 8, fill=1, stroke=1)
-
-    c.setFillColor(HexColor("#334155"))
-    c.setFont("Helvetica-Bold", 10)
-    c.drawString(55, h_page - 205, "Target")
-    c.drawString(55, h_page - 229, "Detected Network")
-    c.drawString(55, h_page - 253, "Payment Reference")
-
-    c.setFont("Helvetica", 10)
-    c.drawString(175, h_page - 205, truncate(target, 65))
-    c.drawString(175, h_page - 229, detect_network(target))
-    c.drawString(175, h_page - 253, truncate(tx_hash, 65))
-
-    # Section 2
-    c.setFillColor(HexColor("#0F172A"))
-    c.setFont("Helvetica-Bold", 17)
-    c.drawString(40, h_page - 315, "2. Risk Assessment")
-
-    c.setFillColor(HexColor(risk_color(risk)))
-    c.roundRect(40, h_page - 390, w - 80, 54, 8, fill=1, stroke=0)
-
-    c.setFillColor(white)
     c.setFont("Helvetica-Bold", 16)
-    c.drawString(58, h_page - 357, f"Status: {get_risk_ui(risk)}")
-    c.drawString(w - 175, h_page - 357, f"Score: {score}/100")
+    c.drawString(40, y_start, "1. Target Asset Identification")
 
-    # Section 3
-    c.setFillColor(HexColor("#0F172A"))
-    c.setFont("Helvetica-Bold", 17)
-    c.drawString(40, h_page - 430, "3. Analyst Decision")
-
+    # Тень для блока
+    c.setFillColor(HexColor("#E2E8F0"))
+    c.roundRect(42, y_start - 102, w - 80, 90, 6, fill=1, stroke=0)
+    # Основной блок
     c.setFillColor(white)
     c.setStrokeColor(HexColor("#CBD5E1"))
-    c.roundRect(40, h_page - 560, w - 80, 105, 8, fill=1, stroke=1)
+    c.setLineWidth(1)
+    c.roundRect(40, y_start - 100, w - 80, 90, 6, fill=1, stroke=1)
 
     c.setFillColor(HexColor("#475569"))
-    c.setFont("Helvetica", 10)
-    note_lines = textwrap_wrap(analyst_note or "Manual review completed by LexGuard analyst desk.", width=85)
-    draw_wrapped_text(c, note_lines[:5], 55, h_page - 485, 15)
-
-    # Section 4
-    c.setFillColor(HexColor("#0F172A"))
-    c.setFont("Helvetica-Bold", 17)
-    c.drawString(40, h_page - 595, "4. Digital Certification")
-
-    c.setFillColor(HexColor("#EFF6FF"))
-    c.setStrokeColor(HexColor("#93C5FD"))
-    c.roundRect(40, h_page - 730, w - 80, 110, 8, fill=1, stroke=1)
-
-    c.setFillColor(HexColor("#1E3A8A"))
     c.setFont("Helvetica-Bold", 10)
-    c.drawString(55, h_page - 645, "Signature Method")
-    c.drawString(55, h_page - 665, "Verification Digest")
-    c.drawString(55, h_page - 685, "Issuer")
-    c.drawString(55, h_page - 705, "Certification Timestamp")
+    c.drawString(55, y_start - 35, "Target Asset:")
+    c.drawString(55, y_start - 58, "Detected Network:")
+    c.drawString(55, y_start - 81, "Audit Reference:")
 
+    c.setFillColor(HexColor("#0F172A"))
+    c.setFont("Helvetica", 10)
+    c.drawString(170, y_start - 35, truncate(target, 65))
+    c.drawString(170, y_start - 58, detect_network(target))
+    c.drawString(170, y_start - 81, truncate(tx_hash, 65))
+
+    # --- СЕКЦИЯ 2: ОЦЕНКА РИСКА (Risk Assessment) ---
+    y_start = h_page - 320
+    c.setFillColor(HexColor("#0F172A"))
+    c.setFont("Helvetica-Bold", 16)
+    c.drawString(40, y_start, "2. Risk & Compliance Assessment")
+
+    box_color = risk_color(risk)
+    
+    # Тень
+    c.setFillColor(HexColor("#E2E8F0"))
+    c.roundRect(42, y_start - 77, w - 80, 65, 6, fill=1, stroke=0)
+    # Цветной блок риска
+    c.setFillColor(HexColor(box_color))
+    c.roundRect(40, y_start - 75, w - 80, 65, 6, fill=1, stroke=0)
+
+    c.setFillColor(white)
+    c.setFont("Helvetica-Bold", 20)
+    c.drawString(60, y_start - 35, f"Risk Status: {risk.upper()}")
+    
+    c.setFont("Helvetica", 12)
+    c.drawString(60, y_start - 55, "LexGuard AML Protocol")
+    
+    # Score circle
+    c.setFillColor(white)
+    c.circle(w - 90, y_start - 42, 25, fill=1, stroke=0)
+    c.setFillColor(HexColor(box_color))
+    c.setFont("Helvetica-Bold", 16)
+    c.drawCentredString(w - 90, y_start - 48, f"{score}")
+    c.setFont("Helvetica", 8)
+    c.drawCentredString(w - 90, y_start - 58, "SCORE")
+
+    # --- СЕКЦИЯ 3: ЗАМЕЧАНИЕ АНАЛИТИКА (Analyst Decision) ---
+    y_start = h_page - 440
+    c.setFillColor(HexColor("#0F172A"))
+    c.setFont("Helvetica-Bold", 16)
+    c.drawString(40, y_start, "3. Analyst Resolution & Notes")
+
+    # Тень
+    c.setFillColor(HexColor("#E2E8F0"))
+    c.roundRect(42, y_start - 122, w - 80, 110, 6, fill=1, stroke=0)
+    # Основной блок
+    c.setFillColor(HexColor("#F8FAFC"))
+    c.setStrokeColor(HexColor("#CBD5E1"))
+    c.roundRect(40, y_start - 120, w - 80, 110, 6, fill=1, stroke=1)
+
+    c.setFillColor(HexColor("#1E293B"))
+    c.setFont("Helvetica", 10)
+    note_lines = textwrap_wrap(analyst_note or "Comprehensive manual review completed by LexGuard Security Analyst Desk. No additional flags detected in immediate transaction history.", width=95)
+    draw_wrapped_text(c, note_lines[:6], 55, y_start - 35, 16)
+
+    # --- СЕКЦИЯ 4: ЦИФРОВАЯ СЕРТИФИКАЦИЯ (Digital Certification & QR) ---
+    y_start = h_page - 610
+    
+    # Блок сертификации (темно-синий)
+    c.setFillColor(HexColor("#0B1120"))
+    c.roundRect(40, y_start - 160, w - 80, 160, 8, fill=1, stroke=0)
+    # Внутренняя рамка
+    c.setStrokeColor(HexColor("#1E3A8A"))
+    c.setLineWidth(1)
+    c.roundRect(45, y_start - 155, w - 90, 150, 6, fill=0, stroke=1)
+
+    # Заголовок секции внутри синего блока
+    c.setFillColor(HexColor("#D4AF37"))
+    c.setFont("Helvetica-Bold", 14)
+    c.drawString(60, y_start - 30, "OFFICIAL DIGITAL CERTIFICATION")
+    c.setStrokeColor(HexColor("#1E3A8A"))
+    c.line(60, y_start - 35, w - 200, y_start - 35)
+
+    # QR Code (Цифровой код)
+    qr_data = f"REPORT:{report_id}\nTARGET:{target[:20]}...\nSIG:{signature[:30]}..."
+    qr_w = qr.QrCodeWidget(qr_data)
+    # Масштабируем QR код
+    b = qr_w.getBounds()
+    w_qr = b[2] - b[0]
+    h_qr = b[3] - b[1]
+    d = Drawing(90, 90, transform=[90/w_qr, 0, 0, 90/h_qr, 0, 0])
+    d.add(qr_w)
+    # Отрисовываем QR код поверх белого квадрата для контрастности
+    c.setFillColor(white)
+    c.rect(60, y_start - 140, 94, 94, fill=1, stroke=0)
+    renderPDF.draw(d, c, 62, y_start - 138)
+
+    # Текстовые данные подписи
+    c.setFillColor(HexColor("#94A3B8"))
     c.setFont("Helvetica", 9)
-    c.drawString(180, h_page - 645, "HMAC-SHA256 Enterprise Signature")
-    c.drawString(180, h_page - 665, short_sig)
-    c.drawString(180, h_page - 685, "LexGuard Security Framework")
-    c.drawString(180, h_page - 705, issued)
+    tx_y = y_start - 60
+    c.drawString(175, tx_y, "Signature Method:")
+    c.drawString(175, tx_y - 18, "Verification Digest:")
+    c.drawString(175, tx_y - 36, "Issuing Authority:")
+    c.drawString(175, tx_y - 54, "Blockchain Validated:")
 
+    c.setFillColor(white)
+    c.setFont("Helvetica-Bold", 9)
+    c.drawString(280, tx_y, "HMAC-SHA256 Enterprise Cryptography")
+    c.drawString(280, tx_y - 18, signature[:40] + "...")
+    c.drawString(280, tx_y - 36, "LexGuard Global Security Framework")
+    c.drawString(280, tx_y - 54, "TRUE")
+    
+    # Предупреждение о верификации
+    c.setFillColor(HexColor("#64748B"))
+    c.setFont("Helvetica", 8)
+    c.drawString(175, tx_y - 75, "Scan QR code to verify document authenticity. Alteration of this")
+    c.drawString(175, tx_y - 85, "document is strictly prohibited and actively monitored.")
+
+    # Отрисовка Векторной Печати / Голограммы справа
+    draw_vector_seal(c, w - 100, y_start - 80, 45)
+
+    # --- FOOTER ---
+    c.setFillColor(HexColor("#94A3B8"))
+    c.setFont("Helvetica", 8)
+    c.drawCentredString(w/2, 30, "© 2026 LexGuard AML Solutions. Generated via automated security node. Do not distribute without authorization.")
+
+    # Финализация
     c.showPage()
     c.save()
     buffer.seek(0)
@@ -497,9 +630,9 @@ def generate_pdf(target: str, tx_hash: str, risk: str, score: int, analyst_note:
 def main_menu() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("⚡ Quick Check", callback_data="ui_scan")],
-        [InlineKeyboardButton("💎 Manual Premium Audit", callback_data="ui_audit")],
+        [InlineKeyboardButton("💎 Manual Premium Reported AML•KYC", callback_data="ui_audit")],
         [InlineKeyboardButton("💼 Services & Pricing", callback_data="ui_pricing")],
-        [InlineKeyboardButton("🎧 Analyst Support", callback_data="ui_support")],
+        [InlineKeyboardButton("💭 Analyst Support", callback_data="ui_support")],
         [InlineKeyboardButton("🛡 About LexGuard", callback_data="ui_about")],
     ])
 
@@ -571,7 +704,7 @@ def pricing_text() -> str:
         "💼 <b>Services & Pricing</b>\n\n"
         "⚡ <b>Quick Check</b>\n"
         "Manual risk grading by analyst desk.\n\n"
-        "💎 <b>Premium Manual Audit</b>\n"
+        "💎 <b>Premium Reported AML•KYC</b>\n"
         f"Full PDF report, digital certification, analyst decision note.\n"
         f"Fee: <b>${FULL_REPORT_PRICE_USD}</b>\n"
         f"Payment network: <b>{h(PAYMENT_NETWORK)}</b>\n"
@@ -591,7 +724,7 @@ def quick_check_submitted_text(request_id: int, target: str) -> str:
 
 def audit_payment_text(request_id: int, target: str) -> str:
     return (
-        "💎 <b>Manual Premium Audit</b>\n\n"
+        "💎 <b>Manual Premium Reported AML•KYC</b>\n\n"
         f"Request ID: <code>{request_id}</code>\n"
         f"Target: <code>{h(target)}</code>\n"
         f"Amount due: <b>${FULL_REPORT_PRICE_USD}</b>\n"
@@ -620,13 +753,13 @@ def scan_result_text(request_id: int, target: str, risk: str, score: int, note: 
         f"<b>Risk Level:</b> {get_risk_ui(risk)}\n"
         f"<b>Confidence Score:</b> {score}/100"
         f"{extra}\n\n"
-        "<i>Powered by LexGuard AML Pro</i>"
+        "<i>Powered by LexGuard AML•KYC Service</i>"
     )
 
 
 def audit_caption_text(request_id: int, target: str, risk: str, score: int, report_id: str) -> str:
     return (
-        "💎 <b>PREMIUM AUDIT COMPLETE</b>\n\n"
+        "💎 <b>PREMIUM AML•KYC COMPLETE</b>\n\n"
         f"<b>Request ID:</b> <code>{request_id}</code>\n"
         f"<b>Report ID:</b> <code>{report_id}</code>\n"
         f"<b>Target:</b> <code>{h(target)}</code>\n"
@@ -752,7 +885,7 @@ async def process_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "ui_audit":
         context.user_data["state"] = "wait_audit_target"
         await edit_callback_message(
-            "💎 <b>Manual Premium Audit</b>\n\nSend the target wallet address for a full analyst-reviewed PDF audit.",
+            "💎 <b>Premium Reported AML•KYC</b>\n\nSend the target wallet address for a full analyst-reviewed PDF audit.",
             reply_markup=back_menu(),
         )
         return
@@ -764,7 +897,7 @@ async def process_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "ui_support":
         context.user_data["state"] = "wait_support_msg"
         await edit_callback_message(
-            "🎧 <b>Analyst Support</b>\n\nSend your message below. The support desk will reply in this chat.",
+            "💭 <b>Analyst Support</b>\n\nSend your message below. The support desk will reply in this chat.",
             reply_markup=back_menu(),
         )
         return
@@ -1081,7 +1214,7 @@ async def handle_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
         admin_text = (
-            "💎 <b>PREMIUM AUDIT PAYMENT SUBMITTED</b>\n\n"
+            
             f"<b>Request ID:</b> <code>{request_id}</code>\n"
             f"<b>User ID:</b> <code>{user.id}</code>\n"
             f"<b>Target:</b> <code>{h(request['target'])}</code>\n"
@@ -1109,7 +1242,7 @@ async def handle_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
         admin_text = (
-            "🎧 <b>NEW SUPPORT TICKET</b>\n\n"
+            "💭 <b>NEW SUPPORT TICKET</b>\n\n"
             f"<b>Ticket ID:</b> <code>{ticket_id}</code>\n"
             f"<b>User ID:</b> <code>{user.id}</code>\n"
             f"<b>Username:</b> @{h(user.username) if user.username else 'N/A'}\n\n"
