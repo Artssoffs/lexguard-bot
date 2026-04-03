@@ -1,6 +1,8 @@
+
 """
-LexGuard AML • Pro - Flagship Edition
-Institutional Grade Blockchain Analysis
+LexGuard AML Pro
+Manual analyst review workflow with Telegram delivery,
+digitally certified PDF reports, and landing-page verification support.
 """
 
 import os
@@ -11,9 +13,10 @@ import hashlib
 import sqlite3
 import logging
 from io import BytesIO
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from datetime import datetime, timezone
 from typing import Optional, Tuple
+from urllib.parse import quote_plus
 from math import pi, cos, sin
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -27,7 +30,6 @@ from telegram.ext import (
     filters,
 )
 
-# ReportLab imports for PDF generation
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.colors import HexColor, white, Color
 from reportlab.pdfgen import canvas
@@ -51,6 +53,10 @@ PAYMENT_NETWORK = os.getenv("PAYMENT_NETWORK", "USDT (TRC20)")
 SECRET_KEY = os.getenv("REPORT_SIGNING_SECRET", "LEXGUARD_ENTERPRISE_KEY")
 START_BANNER_PATH = os.getenv("START_BANNER_PATH", "lexguard_banner.png")
 DATABASE_PATH = os.getenv("DATABASE_PATH", "lexguard.db")
+SITE_URL = os.getenv("SITE_URL", "").rstrip("/")
+BOT_LINK = os.getenv("BOT_LINK", "https://t.me/LexAML_Bot")
+SUPPORT_LINK = os.getenv("SUPPORT_LINK", BOT_LINK)
+DROP_PENDING_UPDATES = os.getenv("DROP_PENDING_UPDATES", "true").lower() == "true"
 
 logging.basicConfig(
     level=logging.INFO,
@@ -252,6 +258,7 @@ class Database:
 
     def stats(self):
         c = self.conn.cursor()
+
         def one(query: str):
             c.execute(query)
             row = c.fetchone()
@@ -283,8 +290,14 @@ def h(value) -> str:
 
 
 def truncate(text: str, limit: int = 80) -> str:
-    text = text.strip()
-    return text if len(text) <= limit else text[:limit - 3] + "..."
+    text = (text or "").strip()
+    return text if len(text) <= limit else text[: limit - 3] + "..."
+
+
+def verify_url(report_id: str) -> str:
+    if not SITE_URL:
+        return ""
+    return f"{SITE_URL}/verify?report={quote_plus(report_id)}"
 
 
 def detect_network(value: str) -> str:
@@ -312,10 +325,10 @@ def get_risk_ui(risk: str) -> str:
 
 def risk_color(risk: str) -> str:
     mapping = {
-        "LOW": "#10B981",    # Green
-        "MEDIUM": "#F59E0B", # Amber
-        "HIGH": "#EF4444",   # Red
-        "CRITICAL": "#7F1D1D",# Dark Red
+        "LOW": "#10B981",
+        "MEDIUM": "#F59E0B",
+        "HIGH": "#EF4444",
+        "CRITICAL": "#7F1D1D",
     }
     return mapping.get((risk or "").upper(), "#334155")
 
@@ -352,7 +365,8 @@ def textwrap_wrap(text: str, width: int = 70):
     lines = []
     current = ""
     for word in words:
-        if len(current) + len(word) + 1 <= width:
+        extra = 1 if current else 0
+        if len(current) + len(word) + extra <= width:
             current = f"{current} {word}".strip()
         else:
             if current:
@@ -373,20 +387,19 @@ def draw_wrapped_text(c: canvas.Canvas, lines, x: int, y: int, line_height: int 
         current_y -= line_height
     return current_y
 
+
 def draw_vector_seal(c: canvas.Canvas, x: float, y: float, radius: float):
-    """Рисует сложную векторную печать-голограмму с зубчиками"""
     c.saveState()
     c.translate(x, y)
-    
-    # Внешнее золотое кольцо с зубчиками
-    c.setFillColor(HexColor("#D4AF37")) # Золотой
-    c.setStrokeColor(HexColor("#B8860B")) # Темное золото
+
+    c.setFillColor(HexColor("#D4AF37"))
+    c.setStrokeColor(HexColor("#B8860B"))
     c.setLineWidth(1)
-    
+
     points = 40
     outer_r = radius
     inner_r = radius * 0.85
-    
+
     path = c.beginPath()
     for i in range(points * 2):
         angle = i * (pi / points)
@@ -399,78 +412,68 @@ def draw_vector_seal(c: canvas.Canvas, x: float, y: float, radius: float):
             path.lineTo(px, py)
     path.close()
     c.drawPath(path, fill=1, stroke=1)
-    
-    # Внутреннее темно-синее кольцо
+
     c.setFillColor(HexColor("#0F172A"))
     c.circle(0, 0, radius * 0.75, stroke=0, fill=1)
-    
-    # Декоративная белая линия
+
     c.setStrokeColor(white)
     c.setLineWidth(1.5)
     c.circle(0, 0, radius * 0.65, stroke=1, fill=0)
-    
-    # Внутренний светлый круг
+
     c.setFillColor(HexColor("#1E3A8A"))
     c.circle(0, 0, radius * 0.60, stroke=0, fill=1)
-    
-    # Текст внутри печати
+
     c.setFillColor(HexColor("#D4AF37"))
     c.setFont("Helvetica-Bold", radius * 0.25)
     c.drawCentredString(0, radius * 0.15, "LEXGUARD")
     c.setFont("Helvetica-Bold", radius * 0.18)
     c.setFillColor(white)
     c.drawCentredString(0, -radius * 0.15, "CERTIFIED")
-    
-    # Звездочки для красоты
     c.setFont("Helvetica", radius * 0.15)
     c.drawCentredString(0, -radius * 0.40, "★ ★ ★")
-    
+
     c.restoreState()
+
 
 def generate_pdf(target: str, tx_hash: str, risk: str, score: int, analyst_note: str) -> Tuple[BytesIO, str, str]:
     report_id = build_report_id(target, tx_hash)
     issued = now_utc()
     signature = build_signature(report_id, target, risk, score, tx_hash)
-    
+    verification_link = verify_url(report_id)
+
     buffer = BytesIO()
     c = canvas.Canvas(buffer, pagesize=A4)
     w, h_page = A4
 
-    # --- ФОН И ВОДЯНОЙ ЗНАК ---
     c.setFillColor(HexColor("#F8FAFC"))
     c.rect(0, 0, w, h_page, fill=1, stroke=0)
-    
-    # Водяной знак по центру
+
     c.saveState()
-    c.translate(w/2, h_page/2)
+    c.translate(w / 2, h_page / 2)
     c.rotate(45)
     c.setFont("Helvetica-Bold", 80)
-    c.setFillColor(Color(0.85, 0.88, 0.93, alpha=0.3)) # Полупрозрачный серый-синий
+    c.setFillColor(Color(0.85, 0.88, 0.93, alpha=0.3))
     c.drawCentredString(0, 0, "LEXGUARD SECURE")
     c.restoreState()
 
-    # --- ШАПКА ---
-    # Темно-синий фон шапки
     c.setFillColor(HexColor("#0B1120"))
     c.rect(0, h_page - 120, w, 120, fill=1, stroke=0)
-    # Золотая разделительная полоса
     c.setFillColor(HexColor("#D4AF37"))
     c.rect(0, h_page - 125, w, 5, fill=1, stroke=0)
 
     c.setFillColor(white)
     c.setFont("Helvetica-Bold", 28)
     c.drawString(40, h_page - 55, "LEXGUARD AML PRO")
-    
+
     c.setFillColor(HexColor("#94A3B8"))
     c.setFont("Helvetica", 11)
     c.drawString(40, h_page - 75, "Institutional Grade Blockchain Risk Intelligence")
-    c.drawString(40, h_page - 95, "Comprehensive KYC & AML Compliance Report")
+    c.drawString(40, h_page - 95, "Manual AML / KYC Analyst Resolution Document")
 
-    # Инфо в правой части шапки
     c.setFillColor(HexColor("#10B981"))
     c.setFont("Helvetica-Bold", 10)
     c.drawRightString(w - 40, h_page - 45, "SECURE DIGITAL DOCUMENT")
-    
+
     c.setFillColor(white)
     c.setFont("Helvetica", 9)
     c.drawRightString(w - 40, h_page - 65, f"Report ID: {report_id}")
@@ -478,16 +481,13 @@ def generate_pdf(target: str, tx_hash: str, risk: str, score: int, analyst_note:
     c.setFillColor(HexColor("#D4AF37"))
     c.drawRightString(w - 40, h_page - 95, "STRICTLY CONFIDENTIAL")
 
-    # --- СЕКЦИЯ 1: ИДЕНТИФИКАЦИЯ (Asset Identification) ---
     y_start = h_page - 170
     c.setFillColor(HexColor("#0F172A"))
     c.setFont("Helvetica-Bold", 16)
     c.drawString(40, y_start, "1. Target Asset Identification")
 
-    # Тень для блока
     c.setFillColor(HexColor("#E2E8F0"))
     c.roundRect(42, y_start - 102, w - 80, 90, 6, fill=1, stroke=0)
-    # Основной блок
     c.setFillColor(white)
     c.setStrokeColor(HexColor("#CBD5E1"))
     c.setLineWidth(1)
@@ -505,29 +505,24 @@ def generate_pdf(target: str, tx_hash: str, risk: str, score: int, analyst_note:
     c.drawString(170, y_start - 58, detect_network(target))
     c.drawString(170, y_start - 81, truncate(tx_hash, 65))
 
-    # --- СЕКЦИЯ 2: ОЦЕНКА РИСКА (Risk Assessment) ---
     y_start = h_page - 320
     c.setFillColor(HexColor("#0F172A"))
     c.setFont("Helvetica-Bold", 16)
     c.drawString(40, y_start, "2. Risk & Compliance Assessment")
 
     box_color = risk_color(risk)
-    
-    # Тень
     c.setFillColor(HexColor("#E2E8F0"))
     c.roundRect(42, y_start - 77, w - 80, 65, 6, fill=1, stroke=0)
-    # Цветной блок риска
     c.setFillColor(HexColor(box_color))
     c.roundRect(40, y_start - 75, w - 80, 65, 6, fill=1, stroke=0)
 
     c.setFillColor(white)
     c.setFont("Helvetica-Bold", 20)
     c.drawString(60, y_start - 35, f"Risk Status: {risk.upper()}")
-    
+
     c.setFont("Helvetica", 12)
     c.drawString(60, y_start - 55, "LexGuard AML Protocol")
-    
-    # Score circle
+
     c.setFillColor(white)
     c.circle(w - 90, y_start - 42, 25, fill=1, stroke=0)
     c.setFillColor(HexColor(box_color))
@@ -536,58 +531,48 @@ def generate_pdf(target: str, tx_hash: str, risk: str, score: int, analyst_note:
     c.setFont("Helvetica", 8)
     c.drawCentredString(w - 90, y_start - 58, "SCORE")
 
-    # --- СЕКЦИЯ 3: ЗАМЕЧАНИЕ АНАЛИТИКА (Analyst Decision) ---
     y_start = h_page - 440
     c.setFillColor(HexColor("#0F172A"))
     c.setFont("Helvetica-Bold", 16)
     c.drawString(40, y_start, "3. Analyst Resolution & Notes")
 
-    # Тень
     c.setFillColor(HexColor("#E2E8F0"))
     c.roundRect(42, y_start - 122, w - 80, 110, 6, fill=1, stroke=0)
-    # Основной блок
     c.setFillColor(HexColor("#F8FAFC"))
     c.setStrokeColor(HexColor("#CBD5E1"))
     c.roundRect(40, y_start - 120, w - 80, 110, 6, fill=1, stroke=1)
 
     c.setFillColor(HexColor("#1E293B"))
     c.setFont("Helvetica", 10)
-    note_lines = textwrap_wrap(analyst_note or "Comprehensive manual review completed by LexGuard Security Analyst Desk. No additional flags detected in immediate transaction history.", width=95)
+    note_text = analyst_note or "Comprehensive manual review completed by LexGuard Security Analyst Desk."
+    note_lines = textwrap_wrap(note_text, width=95)
     draw_wrapped_text(c, note_lines[:6], 55, y_start - 35, 16)
 
-    # --- СЕКЦИЯ 4: ЦИФРОВАЯ СЕРТИФИКАЦИЯ (Digital Certification & QR) ---
     y_start = h_page - 610
-    
-    # Блок сертификации (темно-синий)
     c.setFillColor(HexColor("#0B1120"))
     c.roundRect(40, y_start - 160, w - 80, 160, 8, fill=1, stroke=0)
-    # Внутренняя рамка
     c.setStrokeColor(HexColor("#1E3A8A"))
     c.setLineWidth(1)
     c.roundRect(45, y_start - 155, w - 90, 150, 6, fill=0, stroke=1)
 
-    # Заголовок секции внутри синего блока
     c.setFillColor(HexColor("#D4AF37"))
     c.setFont("Helvetica-Bold", 14)
     c.drawString(60, y_start - 30, "OFFICIAL DIGITAL CERTIFICATION")
     c.setStrokeColor(HexColor("#1E3A8A"))
     c.line(60, y_start - 35, w - 200, y_start - 35)
 
-    # QR Code (Цифровой код)
-    qr_data = f"REPORT:{report_id}\nTARGET:{target[:20]}...\nSIG:{signature[:30]}..."
-    qr_w = qr.QrCodeWidget(qr_data)
-    # Масштабируем QR код
+    qr_payload = verification_link or f"REPORT:{report_id}|TARGET:{target}|SIG:{signature}"
+    qr_w = qr.QrCodeWidget(qr_payload)
     b = qr_w.getBounds()
     w_qr = b[2] - b[0]
     h_qr = b[3] - b[1]
-    d = Drawing(90, 90, transform=[90/w_qr, 0, 0, 90/h_qr, 0, 0])
+    d = Drawing(90, 90, transform=[90 / w_qr, 0, 0, 90 / h_qr, 0, 0])
     d.add(qr_w)
-    # Отрисовываем QR код поверх белого квадрата для контрастности
+
     c.setFillColor(white)
     c.rect(60, y_start - 140, 94, 94, fill=1, stroke=0)
     renderPDF.draw(d, c, 62, y_start - 138)
 
-    # Текстовые данные подписи
     c.setFillColor(HexColor("#94A3B8"))
     c.setFont("Helvetica", 9)
     tx_y = y_start - 60
@@ -602,22 +587,28 @@ def generate_pdf(target: str, tx_hash: str, risk: str, score: int, analyst_note:
     c.drawString(280, tx_y - 18, signature[:40] + "...")
     c.drawString(280, tx_y - 36, "LexGuard Global Security Framework")
     c.drawString(280, tx_y - 54, "TRUE")
-    
-    # Предупреждение о верификации
+
     c.setFillColor(HexColor("#64748B"))
     c.setFont("Helvetica", 8)
-    c.drawString(175, tx_y - 75, "Scan QR code to verify document authenticity. Alteration of this")
-    c.drawString(175, tx_y - 85, "document is strictly prohibited and actively monitored.")
+    if verification_link:
+        c.drawString(175, tx_y - 75, "Verification URL:")
+        c.setFillColor(white)
+        c.drawString(245, tx_y - 75, truncate(verification_link, 56))
+        c.setFillColor(HexColor("#64748B"))
+        c.drawString(175, tx_y - 88, "Scan QR code or open the link to validate report authenticity.")
+    else:
+        c.drawString(175, tx_y - 75, "Scan QR code to verify document authenticity.")
+        c.drawString(175, tx_y - 88, "Alteration of this document is strictly prohibited and monitored.")
 
-    # Отрисовка Векторной Печати / Голограммы справа
     draw_vector_seal(c, w - 100, y_start - 80, 45)
 
-    # --- FOOTER ---
+    footer = "© 2026 LexGuard AML Solutions. Generated via automated security node."
+    if SITE_URL:
+        footer += f" Verification: {SITE_URL}"
     c.setFillColor(HexColor("#94A3B8"))
     c.setFont("Helvetica", 8)
-    c.drawCentredString(w/2, 30, "© 2026 LexGuard AML Solutions. Generated via automated security node. Do not distribute without authorization.")
+    c.drawCentredString(w / 2, 30, truncate(footer, 120))
 
-    # Финализация
     c.showPage()
     c.save()
     buffer.seek(0)
@@ -629,8 +620,8 @@ def generate_pdf(target: str, tx_hash: str, risk: str, score: int, analyst_note:
 # =========================================================
 def main_menu() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("⚡ Quick Check", callback_data="ui_scan")],
-        [InlineKeyboardButton("💎 Manual Premium Reported AML•KYC", callback_data="ui_audit")],
+        [InlineKeyboardButton("⚡ Quick Scan (Free)", callback_data="ui_scan")],
+        [InlineKeyboardButton("💎 Custom Manual Audit", callback_data="ui_audit")],
         [InlineKeyboardButton("💼 Services & Pricing", callback_data="ui_pricing")],
         [InlineKeyboardButton("💭 Analyst Support", callback_data="ui_support")],
         [InlineKeyboardButton("🛡 About LexGuard", callback_data="ui_about")],
@@ -667,7 +658,7 @@ def admin_menu_text() -> str:
     stats = db.stats()
     return (
         "🧠 <b>Admin Desk</b>\n\n"
-        f"Pending quick checks: <b>{stats['pending_scans']}</b>\n"
+        f"Pending quick scans: <b>{stats['pending_scans']}</b>\n"
         f"Pending premium audits: <b>{stats['pending_audits']}</b>\n"
         f"Open support tickets: <b>{stats['open_tickets']}</b>\n\n"
         "<b>Commands</b>\n"
@@ -682,55 +673,70 @@ def admin_menu_text() -> str:
 # MESSAGE BUILDERS
 # =========================================================
 def dashboard_text(first_name: str) -> str:
+    extra = ""
+    if SITE_URL:
+        extra += f"\nVerification site: <a href=\"{h(SITE_URL)}\">{h(SITE_URL)}</a>"
+    if BOT_LINK:
+        extra += f"\nOfficial bot: <a href=\"{h(BOT_LINK)}\">Open LexGuard</a>"
     return (
         f"🛡 <b>{h(BOT_NAME)}</b>\n"
         "<i>Institutional Grade Blockchain Risk Intelligence</i>\n\n"
         f"Welcome, <b>{h(first_name)}</b>.\n"
-        "Select the service module below."
+        "Choose your service module below.\n"
+        f"{extra}"
     )
 
 
 def about_text() -> str:
+    verify_line = f"\n\nVerification route: <a href=\"{h(SITE_URL)}/verify\">{h(SITE_URL)}/verify</a>" if SITE_URL else ""
     return (
         "🛡 <b>About LexGuard</b>\n\n"
-        "LexGuard AML Pro is a premium blockchain risk-intelligence service built around manual analyst review.\n\n"
-        "We do not rely on random output. Quick checks and premium audit decisions are assigned by the analyst desk. "
-        "Premium reports are delivered as digitally certified PDF documents with a professional signature block."
+        "LexGuard AML Pro is a manual blockchain risk-intelligence service built around analyst review.\n\n"
+        "Quick scans and premium audit decisions are finalized by the analyst desk. "
+        "Premium reports are delivered as branded PDF documents with a report ID, signature block, and validation data."
+        f"{verify_line}"
     )
 
 
 def pricing_text() -> str:
+    verify_line = f"\nVerification site: <a href=\"{h(SITE_URL)}/verify\">Open</a>" if SITE_URL else ""
     return (
         "💼 <b>Services & Pricing</b>\n\n"
-        "⚡ <b>Quick Check</b>\n"
+        "⚡ <b>Quick Scan (Free)</b>\n"
         "Manual risk grading by analyst desk.\n\n"
-        "💎 <b>Premium Reported AML•KYC</b>\n"
-        f"Full PDF report, digital certification, analyst decision note.\n"
+        "💎 <b>Custom Manual Audit</b>\n"
+        "Full PDF report, digital certification, analyst note and manual final decision.\n"
         f"Fee: <b>${FULL_REPORT_PRICE_USD}</b>\n"
         f"Payment network: <b>{h(PAYMENT_NETWORK)}</b>\n"
         f"Receiving wallet: <code>{h(PAYMENT_WALLET)}</code>"
+        f"{verify_line}"
     )
 
 
 def quick_check_submitted_text(request_id: int, target: str) -> str:
     return (
-        "⏳ <b>Quick Check Submitted</b>\n\n"
+        "⏳ <b>Quick Scan Submitted</b>\n\n"
         f"Request ID: <code>{request_id}</code>\n"
         f"Target: <code>{h(target)}</code>\n"
         "Status: <b>Pending analyst review</b>\n\n"
-        "Your result will be delivered here after manual grading."
+        "Your result will be delivered in this chat after manual grading."
     )
 
 
 def audit_payment_text(request_id: int, target: str) -> str:
+    extra = f"\nSite: <a href=\"{h(SITE_URL)}\">{h(SITE_URL)}</a>" if SITE_URL else ""
     return (
-        "💎 <b>Manual Premium Reported AML•KYC</b>\n\n"
+        "💎 <b>Custom Manual Audit</b>\n\n"
         f"Request ID: <code>{request_id}</code>\n"
         f"Target: <code>{h(target)}</code>\n"
         f"Amount due: <b>${FULL_REPORT_PRICE_USD}</b>\n"
         f"Network: <b>{h(PAYMENT_NETWORK)}</b>\n"
         f"Wallet: <code>{h(PAYMENT_WALLET)}</code>\n\n"
-        "<b>Next step:</b> send your payment TX hash in this chat."
+        "<b>Next step:</b>\n"
+        "1. Send the payment to the wallet above.\n"
+        "2. Return to this chat.\n"
+        "3. Send the payment TX hash exactly as received from your wallet.\n"
+        f"{extra}"
     )
 
 
@@ -739,32 +745,38 @@ def audit_under_review_text(request_id: int) -> str:
         "⏳ <b>Payment Reference Received</b>\n\n"
         f"Request ID: <code>{request_id}</code>\n"
         "Status: <b>Under manual analyst review</b>\n\n"
-        "Your PDF report will be delivered here after the analyst decision is finalized."
+        "Your PDF report will be delivered here after the analyst desk finalizes the decision."
     )
 
 
 def scan_result_text(request_id: int, target: str, risk: str, score: int, note: str) -> str:
     extra = f"\n<b>Analyst Note:</b> {h(note)}" if note else ""
+    support = f"\n<b>Support:</b> <a href=\"{h(SUPPORT_LINK)}\">Open support</a>" if SUPPORT_LINK else ""
     return (
-        "📊 <b>QUICK CHECK COMPLETE</b>\n\n"
+        "📊 <b>QUICK SCAN COMPLETE</b>\n\n"
         f"<b>Request ID:</b> <code>{request_id}</code>\n"
         f"<b>Target:</b> <code>{h(target)}</code>\n"
         f"<b>Network:</b> {h(detect_network(target))}\n"
         f"<b>Risk Level:</b> {get_risk_ui(risk)}\n"
         f"<b>Confidence Score:</b> {score}/100"
-        f"{extra}\n\n"
-        "<i>Powered by LexGuard AML•KYC Service</i>"
+        f"{extra}\n"
+        f"{support}\n\n"
+        "<i>Powered by LexGuard AML Pro</i>"
     )
 
 
 def audit_caption_text(request_id: int, target: str, risk: str, score: int, report_id: str) -> str:
+    verify_line = ""
+    if SITE_URL:
+        verify_line = f"\n<b>Verify:</b> <a href=\"{h(verify_url(report_id))}\">Open report verification</a>"
     return (
-        "💎 <b>PREMIUM AML•KYC COMPLETE</b>\n\n"
+        "💎 <b>PREMIUM AML / KYC COMPLETE</b>\n\n"
         f"<b>Request ID:</b> <code>{request_id}</code>\n"
         f"<b>Report ID:</b> <code>{report_id}</code>\n"
         f"<b>Target:</b> <code>{h(target)}</code>\n"
         f"<b>Risk Level:</b> {get_risk_ui(risk)}\n"
-        f"<b>Score:</b> {score}/100\n\n"
+        f"<b>Score:</b> {score}/100"
+        f"{verify_line}\n\n"
         "<i>Digitally certified report attached.</i>"
     )
 
@@ -819,11 +831,18 @@ async def send_dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=main_menu(),
         )
     elif update.callback_query:
-        await update.callback_query.edit_message_text(
-            dashboard_text(user.first_name or "Client"),
-            parse_mode=ParseMode.HTML,
-            reply_markup=main_menu(),
-        )
+        if update.callback_query.message and (update.callback_query.message.photo or update.callback_query.message.document):
+            await update.callback_query.edit_message_caption(
+                caption=dashboard_text(user.first_name or "Client"),
+                parse_mode=ParseMode.HTML,
+                reply_markup=main_menu(),
+            )
+        else:
+            await update.callback_query.edit_message_text(
+                dashboard_text(user.first_name or "Client"),
+                parse_mode=ParseMode.HTML,
+                reply_markup=main_menu(),
+            )
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -877,7 +896,7 @@ async def process_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "ui_scan":
         context.user_data["state"] = "wait_scan_target"
         await edit_callback_message(
-            "⚡ <b>Quick Check</b>\n\nSend the wallet address or transaction hash for manual risk grading.",
+            "⚡ <b>Quick Scan (Free)</b>\n\nSend the wallet address or transaction hash for manual risk grading.",
             reply_markup=back_menu(),
         )
         return
@@ -885,7 +904,7 @@ async def process_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "ui_audit":
         context.user_data["state"] = "wait_audit_target"
         await edit_callback_message(
-            "💎 <b>Premium Reported AML•KYC</b>\n\nSend the target wallet address for a full analyst-reviewed PDF audit.",
+            "💎 <b>Custom Manual Audit</b>\n\nSend the target wallet address or transaction reference for a full analyst-reviewed PDF audit.",
             reply_markup=back_menu(),
         )
         return
@@ -906,7 +925,6 @@ async def process_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await edit_callback_message(about_text(), reply_markup=back_menu())
         return
 
-    # Support reply initiation
     if data.startswith("sr|"):
         if not is_admin(uid):
             return
@@ -919,7 +937,6 @@ async def process_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # Quick scan inline grading
     if data.startswith("sg|"):
         if not is_admin(uid):
             return
@@ -935,7 +952,6 @@ async def process_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # Premium audit inline grading
     if data.startswith("ag|"):
         if not is_admin(uid):
             return
@@ -981,7 +997,7 @@ async def complete_scan_request(
     )
 
     admin_msg = (
-        "✅ <b>Quick check resolved</b>\n\n"
+        "✅ <b>Quick scan resolved</b>\n\n"
         f"<b>Request ID:</b> <code>{request_id}</code>\n"
         f"<b>User ID:</b> <code>{request['user_id']}</code>\n"
         f"<b>Target:</b> <code>{h(request['target'])}</code>\n"
@@ -1063,7 +1079,7 @@ async def scanres_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         request = resolve_scan_identifier(args[0])
         if not request:
-            await update.message.reply_text("No matching pending scan request found.")
+            await update.message.reply_text("No matching pending quick scan request found.")
             return
 
         risk = normalize_risk(args[1])
@@ -1088,7 +1104,7 @@ async def auditres_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         request = resolve_audit_identifier(args[0])
         if not request:
-            await update.message.reply_text("No matching audit request found.")
+            await update.message.reply_text("No matching premium audit request found.")
             return
 
         risk = normalize_risk(args[1])
@@ -1141,7 +1157,6 @@ async def handle_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     db.upsert_user(user.id, user.username, user.first_name)
 
-    # Fallback for clients/chats where commands can arrive as plain text.
     if re.fullmatch(r"/start(@[\w_]+)?", normalized_text):
         await start(update, context)
         return
@@ -1163,7 +1178,7 @@ async def handle_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
         admin_text = (
-            "🚨 <b>NEW QUICK CHECK REQUEST</b>\n\n"
+            "🚨 <b>NEW QUICK SCAN REQUEST</b>\n\n"
             f"<b>Request ID:</b> <code>{request_id}</code>\n"
             f"<b>User ID:</b> <code>{user.id}</code>\n"
             f"<b>Username:</b> @{h(user.username) if user.username else 'N/A'}\n"
@@ -1199,7 +1214,7 @@ async def handle_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not request_id:
             context.user_data.clear()
             await update.message.reply_text(
-                "No active audit request found. Start a new premium audit from the dashboard.",
+                "No active premium audit request found. Start a new audit from the dashboard.",
                 reply_markup=main_menu(),
             )
             return
@@ -1214,9 +1229,10 @@ async def handle_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
         admin_text = (
-            
+            "💎 <b>NEW PREMIUM AUDIT REQUEST</b>\n\n"
             f"<b>Request ID:</b> <code>{request_id}</code>\n"
             f"<b>User ID:</b> <code>{user.id}</code>\n"
+            f"<b>Username:</b> @{h(user.username) if user.username else 'N/A'}\n"
             f"<b>Target:</b> <code>{h(request['target'])}</code>\n"
             f"<b>Detected Network:</b> {h(request['network'])}\n"
             f"<b>Payment Network:</b> {h(request['payment_network'])}\n"
@@ -1282,7 +1298,7 @@ async def handle_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     await update.message.reply_text(
-        "Use the dashboard buttons to start a quick check, premium audit, or support request.",
+        "Use the dashboard buttons to start a quick scan, premium audit, or support request.",
         reply_markup=main_menu(),
     )
 
@@ -1308,7 +1324,7 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_messages))
 
     logger.info("🚀 %s starting...", BOT_NAME)
-    app.run_polling(close_loop=False)
+    app.run_polling(close_loop=False, drop_pending_updates=DROP_PENDING_UPDATES)
 
 
 if __name__ == "__main__":
