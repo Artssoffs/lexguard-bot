@@ -82,7 +82,7 @@ def verify_block(report_id: str) -> str:
         f'<div class="badge">{botcore.h(row["status"])}</div>'
         f'<h2>{botcore.h(row["report_id"])}</h2>'
         f'<p><strong>Target:</strong> <code>{botcore.h(botcore.truncate(row["target"], 56))}</code></p>'
-        f'<p><strong>Risk:</strong> {botcore.get_risk_ui(row["risk"] or "")} • <strong>Score:</strong> {botcore.h(row["score"] )}/100</p>'
+        f'<p><strong>Risk:</strong> {botcore.get_risk_ui(row["risk"] or "")} • <strong>Score:</strong> {botcore.h(row["score"])}/100</p>'
         f'<p><strong>Completed:</strong> {botcore.h(row["completed_at"] or "N/A")}</p>'
         f'<p><strong>Verification URL:</strong> <code>{botcore.h(verify_url(row["report_id"]))}</code></p>'
         '</div>'
@@ -403,6 +403,7 @@ def build_bot():
     app = ApplicationBuilder().token(botcore.TOKEN).build()
     app.add_error_handler(botcore.error_handler)
     app.add_handler(CommandHandler("start", botcore.start))
+    app.add_handler(CommandHandler("verify", botcore.verify_command))
     app.add_handler(CommandHandler("cancel", botcore.cancel))
     app.add_handler(CommandHandler("admin", botcore.admin_command))
     app.add_handler(CommandHandler("scanres", botcore.scanres_command))

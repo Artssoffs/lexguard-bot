@@ -214,6 +214,15 @@ class Database:
         c.execute("SELECT * FROM audit_requests WHERE id = ?", (request_id,))
         return c.fetchone()
 
+    def get_audit_request_by_report_id(self, report_id: str):
+        c = self.conn.cursor()
+        c.execute("""
+            SELECT * FROM audit_requests
+            WHERE report_id = ?
+            ORDER BY id DESC LIMIT 1
+        """, (report_id.upper(),))
+        return c.fetchone()
+
     def get_latest_pending_audit_for_user(self, user_id: int):
         c = self.conn.cursor()
         c.execute("""
@@ -300,6 +309,16 @@ def verify_url(report_id: str) -> str:
     return f"{SITE_URL}/verify?report={quote_plus(report_id)}"
 
 
+def verify_deeplink(report_id: str) -> str:
+    if not BOT_LINK:
+        return ""
+    return f"{BOT_LINK}?start=verify_{quote_plus(report_id)}"
+
+
+def preferred_verify_link(report_id: str) -> str:
+    return verify_url(report_id) or verify_deeplink(report_id)
+
+
 def detect_network(value: str) -> str:
     value = value.strip()
     if re.fullmatch(r"^T[1-9A-HJ-NP-Za-km-z]{33}$", value):
@@ -377,10 +396,32 @@ def textwrap_wrap(text: str, width: int = 70):
     return lines
 
 
+def render_link_lines(link: str, width: int = 56):
+    if not link:
+        return ["SITE_URL not configured"]
+    chunks = []
+    current = ""
+    for part in link.split("/"):
+        candidate = part if not current else current + "/" + part
+        if len(candidate) <= width:
+            current = candidate
+        else:
+            if current:
+                chunks.append(current)
+            current = part
+    if current:
+        chunks.append(current)
+    if len(chunks) == 1 and len(chunks[0]) > width:
+        chunks = [chunks[0][i:i+width] for i in range(0, len(chunks[0]), width)]
+    return chunks[:4]
+
+
 # =========================================================
 # ADVANCED PDF GENERATOR
 # =========================================================
-def draw_wrapped_text(c: canvas.Canvas, lines, x: int, y: int, line_height: int = 14):
+def draw_wrapped_text(c: canvas.Canvas, lines, x: int, y: int, line_height: int = 14, font_name: str = "Helvetica", font_size: int = 10, color: str = "#1E293B"):
+    c.setFillColor(HexColor(color))
+    c.setFont(font_name, font_size)
     current_y = y
     for line in lines:
         c.drawString(x, current_y, line)
@@ -393,13 +434,12 @@ def draw_vector_seal(c: canvas.Canvas, x: float, y: float, radius: float):
     c.translate(x, y)
 
     c.setFillColor(HexColor("#D4AF37"))
-    c.setStrokeColor(HexColor("#B8860B"))
-    c.setLineWidth(1)
+    c.setStrokeColor(HexColor("#F7D96C"))
+    c.setLineWidth(1.2)
 
-    points = 40
+    points = 48
     outer_r = radius
-    inner_r = radius * 0.85
-
+    inner_r = radius * 0.86
     path = c.beginPath()
     for i in range(points * 2):
         angle = i * (pi / points)
@@ -413,33 +453,53 @@ def draw_vector_seal(c: canvas.Canvas, x: float, y: float, radius: float):
     path.close()
     c.drawPath(path, fill=1, stroke=1)
 
-    c.setFillColor(HexColor("#0F172A"))
-    c.circle(0, 0, radius * 0.75, stroke=0, fill=1)
-
-    c.setStrokeColor(white)
+    c.setFillColor(HexColor("#08111E"))
+    c.circle(0, 0, radius * 0.80, stroke=0, fill=1)
+    c.setStrokeColor(HexColor("#D4AF37"))
     c.setLineWidth(1.5)
-    c.circle(0, 0, radius * 0.65, stroke=1, fill=0)
+    c.circle(0, 0, radius * 0.70, stroke=1, fill=0)
+    c.circle(0, 0, radius * 0.57, stroke=1, fill=0)
 
-    c.setFillColor(HexColor("#1E3A8A"))
-    c.circle(0, 0, radius * 0.60, stroke=0, fill=1)
+    c.setFillColor(HexColor("#102040"))
+    c.circle(0, 0, radius * 0.55, stroke=0, fill=1)
 
-    c.setFillColor(HexColor("#D4AF37"))
-    c.setFont("Helvetica-Bold", radius * 0.25)
-    c.drawCentredString(0, radius * 0.15, "LEXGUARD")
-    c.setFont("Helvetica-Bold", radius * 0.18)
-    c.setFillColor(white)
-    c.drawCentredString(0, -radius * 0.15, "CERTIFIED")
-    c.setFont("Helvetica", radius * 0.15)
-    c.drawCentredString(0, -radius * 0.40, "★ ★ ★")
+    c.setFillColor(HexColor("#F7E6A3"))
+    c.setFont("Helvetica-Bold", radius * 0.40)
+    c.drawCentredString(0, radius * 0.02, "LG")
+
+    c.setFont("Helvetica-Bold", radius * 0.12)
+    c.drawCentredString(0, -radius * 0.24, "DIGITAL SEAL")
+
+    c.setStrokeColor(HexColor("#F7E6A3"))
+    c.setLineWidth(1)
+    c.line(-radius * 0.25, radius * 0.18, radius * 0.25, radius * 0.18)
+    c.line(-radius * 0.25, -radius * 0.14, radius * 0.25, -radius * 0.14)
 
     c.restoreState()
+
+
+def draw_signature_strip(c: canvas.Canvas, x: float, y: float, width: float, report_id: str):
+    c.setStrokeColor(HexColor("#64748B"))
+    c.setLineWidth(1)
+    c.line(x, y, x + width, y)
+    c.setFont("Helvetica-Oblique", 16)
+    c.setFillColor(HexColor("#E5E7EB"))
+    c.drawString(x + 8, y + 8, "LexGuard Certification Node")
+    c.setFont("Helvetica", 8)
+    c.setFillColor(HexColor("#94A3B8"))
+    c.drawString(x, y - 12, f"Digital signatory reference: {report_id}")
 
 
 def generate_pdf(target: str, tx_hash: str, risk: str, score: int, analyst_note: str) -> Tuple[BytesIO, str, str]:
     report_id = build_report_id(target, tx_hash)
     issued = now_utc()
     signature = build_signature(report_id, target, risk, score, tx_hash)
-    verification_link = verify_url(report_id)
+    verification_link = preferred_verify_link(report_id)
+    web_verify_link = verify_url(report_id)
+    bot_verify_link = verify_deeplink(report_id)
+    document_fingerprint = hashlib.sha256(
+        f"{report_id}|{issued}|{target}|{risk}|{score}|{tx_hash}|{analyst_note}".encode()
+    ).hexdigest().upper()
 
     buffer = BytesIO()
     c = canvas.Canvas(buffer, pagesize=A4)
@@ -452,8 +512,8 @@ def generate_pdf(target: str, tx_hash: str, risk: str, score: int, analyst_note:
     c.translate(w / 2, h_page / 2)
     c.rotate(45)
     c.setFont("Helvetica-Bold", 80)
-    c.setFillColor(Color(0.85, 0.88, 0.93, alpha=0.3))
-    c.drawCentredString(0, 0, "LEXGUARD SECURE")
+    c.setFillColor(Color(0.85, 0.88, 0.93, alpha=0.22))
+    c.drawCentredString(0, 0, "LEXGUARD VERIFIED")
     c.restoreState()
 
     c.setFillColor(HexColor("#0B1120"))
@@ -472,7 +532,7 @@ def generate_pdf(target: str, tx_hash: str, risk: str, score: int, analyst_note:
 
     c.setFillColor(HexColor("#10B981"))
     c.setFont("Helvetica-Bold", 10)
-    c.drawRightString(w - 40, h_page - 45, "SECURE DIGITAL DOCUMENT")
+    c.drawRightString(w - 40, h_page - 45, "VERIFIED DIGITAL DOCUMENT")
 
     c.setFillColor(white)
     c.setFont("Helvetica", 9)
@@ -542,72 +602,104 @@ def generate_pdf(target: str, tx_hash: str, risk: str, score: int, analyst_note:
     c.setStrokeColor(HexColor("#CBD5E1"))
     c.roundRect(40, y_start - 120, w - 80, 110, 6, fill=1, stroke=1)
 
-    c.setFillColor(HexColor("#1E293B"))
-    c.setFont("Helvetica", 10)
     note_text = analyst_note or "Comprehensive manual review completed by LexGuard Security Analyst Desk."
     note_lines = textwrap_wrap(note_text, width=95)
     draw_wrapped_text(c, note_lines[:6], 55, y_start - 35, 16)
 
-    y_start = h_page - 610
-    c.setFillColor(HexColor("#0B1120"))
-    c.roundRect(40, y_start - 160, w - 80, 160, 8, fill=1, stroke=0)
-    c.setStrokeColor(HexColor("#1E3A8A"))
+    y_panel_top = h_page - 610
+    panel_h = 188
+    c.setFillColor(HexColor("#07111F"))
+    c.roundRect(40, y_panel_top - panel_h, w - 80, panel_h, 10, fill=1, stroke=0)
+    c.setStrokeColor(HexColor("#1D4ED8"))
     c.setLineWidth(1)
-    c.roundRect(45, y_start - 155, w - 90, 150, 6, fill=0, stroke=1)
+    c.roundRect(45, y_panel_top - panel_h + 5, w - 90, panel_h - 10, 8, fill=0, stroke=1)
 
     c.setFillColor(HexColor("#D4AF37"))
     c.setFont("Helvetica-Bold", 14)
-    c.drawString(60, y_start - 30, "OFFICIAL DIGITAL CERTIFICATION")
-    c.setStrokeColor(HexColor("#1E3A8A"))
-    c.line(60, y_start - 35, w - 200, y_start - 35)
+    c.drawString(60, y_panel_top - 28, "4. OFFICIAL DIGITAL CERTIFICATION")
+    c.setStrokeColor(HexColor("#1D4ED8"))
+    c.line(60, y_panel_top - 34, w - 200, y_panel_top - 34)
 
     qr_payload = verification_link or f"REPORT:{report_id}|TARGET:{target}|SIG:{signature}"
     qr_w = qr.QrCodeWidget(qr_payload)
     b = qr_w.getBounds()
     w_qr = b[2] - b[0]
     h_qr = b[3] - b[1]
-    d = Drawing(90, 90, transform=[90 / w_qr, 0, 0, 90 / h_qr, 0, 0])
+    d = Drawing(94, 94, transform=[94 / w_qr, 0, 0, 94 / h_qr, 0, 0])
     d.add(qr_w)
 
     c.setFillColor(white)
-    c.rect(60, y_start - 140, 94, 94, fill=1, stroke=0)
-    renderPDF.draw(d, c, 62, y_start - 138)
+    c.roundRect(58, y_panel_top - 154, 98, 98, 8, fill=1, stroke=0)
+    renderPDF.draw(d, c, 60, y_panel_top - 152)
 
     c.setFillColor(HexColor("#94A3B8"))
-    c.setFont("Helvetica", 9)
-    tx_y = y_start - 60
-    c.drawString(175, tx_y, "Signature Method:")
-    c.drawString(175, tx_y - 18, "Verification Digest:")
-    c.drawString(175, tx_y - 36, "Issuing Authority:")
-    c.drawString(175, tx_y - 54, "Blockchain Validated:")
+    c.setFont("Helvetica-Bold", 8)
+    c.drawString(64, y_panel_top - 164, "SCAN TO VERIFY")
 
-    c.setFillColor(white)
+    info_x = 176
+    c.setFillColor(HexColor("#94A3B8"))
     c.setFont("Helvetica-Bold", 9)
-    c.drawString(280, tx_y, "HMAC-SHA256 Enterprise Cryptography")
-    c.drawString(280, tx_y - 18, signature[:40] + "...")
-    c.drawString(280, tx_y - 36, "LexGuard Global Security Framework")
-    c.drawString(280, tx_y - 54, "TRUE")
+    c.drawString(info_x, y_panel_top - 58, "Public verification link")
+    draw_wrapped_text(
+        c,
+        render_link_lines(verification_link),
+        info_x,
+        y_panel_top - 72,
+        line_height=11,
+        font_name="Helvetica",
+        font_size=8,
+        color="#F8FAFC",
+    )
 
-    c.setFillColor(HexColor("#64748B"))
-    c.setFont("Helvetica", 8)
-    if verification_link:
-        c.drawString(175, tx_y - 75, "Verification URL:")
-        c.setFillColor(white)
-        c.drawString(245, tx_y - 75, truncate(verification_link, 56))
-        c.setFillColor(HexColor("#64748B"))
-        c.drawString(175, tx_y - 88, "Scan QR code or open the link to validate report authenticity.")
-    else:
-        c.drawString(175, tx_y - 75, "Scan QR code to verify document authenticity.")
-        c.drawString(175, tx_y - 88, "Alteration of this document is strictly prohibited and monitored.")
-
-    draw_vector_seal(c, w - 100, y_start - 80, 45)
-
-    footer = "© 2026 LexGuard AML Solutions. Generated via automated security node."
-    if SITE_URL:
-        footer += f" Verification: {SITE_URL}"
     c.setFillColor(HexColor("#94A3B8"))
-    c.setFont("Helvetica", 8)
-    c.drawCentredString(w / 2, 30, truncate(footer, 120))
+    c.setFont("Helvetica-Bold", 9)
+    c.drawString(info_x, y_panel_top - 118, "Document controls")
+    draw_wrapped_text(
+        c,
+        [
+            f"Seal ID: {report_id}",
+            f"Fingerprint: {document_fingerprint[:16]}-{document_fingerprint[16:32]}",
+            f"Control digest: {signature[:24]}...",
+        ],
+        info_x,
+        y_panel_top - 132,
+        line_height=11,
+        font_name="Helvetica",
+        font_size=8,
+        color="#F8FAFC",
+    )
+
+    c.setFillColor(HexColor("#94A3B8"))
+    c.setFont("Helvetica-Bold", 9)
+    c.drawString(info_x, y_panel_top - 168, "Issued via")
+    draw_wrapped_text(
+        c,
+        [
+            "LexGuard Analyst Desk",
+            f"Web route: {truncate(web_verify_link or 'not configured', 44)}",
+            f"Bot route: {truncate(bot_verify_link or BOT_LINK, 44)}",
+        ],
+        info_x,
+        y_panel_top - 182,
+        line_height=11,
+        font_name="Helvetica",
+        font_size=8,
+        color="#F8FAFC",
+    )
+
+    draw_vector_seal(c, w - 98, y_panel_top - 88, 47)
+    draw_signature_strip(c, w - 240, y_panel_top - 144, 150, report_id)
+
+    footer = "© 2026 LexGuard AML Solutions. Generated via certified analyst workflow."
+    if verification_link:
+        footer += f" Verify: {verification_link}"
+    c.setFillColor(HexColor("#94A3B8"))
+    c.setFont("Helvetica", 7)
+    footer_lines = render_link_lines(footer, width=110)
+    current_y = 28
+    for line in footer_lines[:2]:
+        c.drawCentredString(w / 2, current_y, line)
+        current_y -= 9
 
     c.showPage()
     c.save()
@@ -665,6 +757,7 @@ def admin_menu_text() -> str:
         "<code>/scanres &lt;request_id or user_id&gt; &lt;LOW|MEDIUM|HIGH|CRITICAL&gt; &lt;score&gt; [note]</code>\n"
         "<code>/auditres &lt;request_id or user_id&gt; &lt;LOW|MEDIUM|HIGH|CRITICAL&gt; &lt;score&gt; [note]</code>\n"
         "<code>/reply &lt;user_id&gt; &lt;message&gt;</code>\n"
+        "<code>/verify &lt;report_id&gt;</code>\n"
         "<code>/admin</code>"
     )
 
@@ -693,7 +786,7 @@ def about_text() -> str:
         "🛡 <b>About LexGuard</b>\n\n"
         "LexGuard AML Pro is a manual blockchain risk-intelligence service built around analyst review.\n\n"
         "Quick scans and premium audit decisions are finalized by the analyst desk. "
-        "Premium reports are delivered as branded PDF documents with a report ID, signature block, and validation data."
+        "Premium reports are delivered as branded PDF documents with a report ID, visible verification routes, and a digital certification block."
         f"{verify_line}"
     )
 
@@ -705,7 +798,7 @@ def pricing_text() -> str:
         "⚡ <b>Quick Scan (Free)</b>\n"
         "Manual risk grading by analyst desk.\n\n"
         "💎 <b>Custom Manual Audit</b>\n"
-        "Full PDF report, digital certification, analyst note and manual final decision.\n"
+        "Full PDF report, visible verification link, digital certification, analyst note and manual final decision.\n"
         f"Fee: <b>${FULL_REPORT_PRICE_USD}</b>\n"
         f"Payment network: <b>{h(PAYMENT_NETWORK)}</b>\n"
         f"Receiving wallet: <code>{h(PAYMENT_WALLET)}</code>"
@@ -766,9 +859,7 @@ def scan_result_text(request_id: int, target: str, risk: str, score: int, note: 
 
 
 def audit_caption_text(request_id: int, target: str, risk: str, score: int, report_id: str) -> str:
-    verify_line = ""
-    if SITE_URL:
-        verify_line = f"\n<b>Verify:</b> <a href=\"{h(verify_url(report_id))}\">Open report verification</a>"
+    verify_line = f"\n<b>Verify:</b> <a href=\"{h(preferred_verify_link(report_id))}\">Open report verification</a>" if preferred_verify_link(report_id) else ""
     return (
         "💎 <b>PREMIUM AML / KYC COMPLETE</b>\n\n"
         f"<b>Request ID:</b> <code>{request_id}</code>\n"
@@ -778,6 +869,30 @@ def audit_caption_text(request_id: int, target: str, risk: str, score: int, repo
         f"<b>Score:</b> {score}/100"
         f"{verify_line}\n\n"
         "<i>Digitally certified report attached.</i>"
+    )
+
+
+def verify_report_text(row) -> str:
+    if not row:
+        return (
+            "❌ <b>Report not found</b>\n\n"
+            "No completed premium report was found for that report ID."
+        )
+
+    report_id = row["report_id"] or "N/A"
+    risk = row["risk"] or "UNKNOWN"
+    score = row["score"] if row["score"] is not None else "N/A"
+    verify_line = preferred_verify_link(report_id)
+    link_block = f"\n<b>Verification link:</b> <a href=\"{h(verify_line)}\">Open</a>" if verify_line else ""
+    return (
+        "✅ <b>Report verification</b>\n\n"
+        f"<b>Report ID:</b> <code>{h(report_id)}</code>\n"
+        f"<b>Status:</b> <b>{h(row['status'])}</b>\n"
+        f"<b>Target:</b> <code>{h(truncate(row['target'], 56))}</code>\n"
+        f"<b>Risk:</b> {get_risk_ui(risk)}\n"
+        f"<b>Score:</b> {score}/100\n"
+        f"<b>Completed:</b> {h(row['completed_at'] or 'N/A')}"
+        f"{link_block}"
     )
 
 
@@ -847,7 +962,34 @@ async def send_dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
+    if context.args:
+        arg0 = context.args[0].strip()
+        if arg0.startswith("verify_"):
+            report_id = arg0.split("verify_", 1)[1].strip().upper()
+            row = db.get_audit_request_by_report_id(report_id)
+            await update.effective_message.reply_text(
+                verify_report_text(row),
+                parse_mode=ParseMode.HTML,
+                reply_markup=main_menu(),
+            )
+            return
     await send_dashboard(update, context)
+
+
+async def verify_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text(
+            "Usage:\n/verify <report_id>",
+            reply_markup=main_menu(),
+        )
+        return
+    report_id = context.args[0].strip().upper()
+    row = db.get_audit_request_by_report_id(report_id)
+    await update.message.reply_text(
+        verify_report_text(row),
+        parse_mode=ParseMode.HTML,
+        reply_markup=main_menu(),
+    )
 
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1166,6 +1308,11 @@ async def handle_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if re.fullmatch(r"/admin(@[\w_]+)?", normalized_text):
         await admin_command(update, context)
         return
+    if re.fullmatch(r"/verify(@[\w_]+)?", normalized_text):
+        parts = text.split(maxsplit=1)
+        context.args = parts[1].split() if len(parts) > 1 else []
+        await verify_command(update, context)
+        return
 
     if state == "wait_scan_target":
         network = detect_network(text)
@@ -1315,6 +1462,7 @@ def main():
 
     app.add_error_handler(error_handler)
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("verify", verify_command))
     app.add_handler(CommandHandler("cancel", cancel))
     app.add_handler(CommandHandler("admin", admin_command))
     app.add_handler(CommandHandler("scanres", scanres_command))
